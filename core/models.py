@@ -251,11 +251,27 @@ class ScenarioConstraint(models.Model):
 
 class GeneratedSolution(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    scenario_id = models.UUIDField()
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='generated_solutions', null=True)
+    name = models.CharField(max_length=255, null=True, blank=True)
     solution_type = models.CharField(max_length=20, choices=SolutionType.choices, default=SolutionType.COURSE_SCHEDULE)
+    
+    # Execution Tracking
+    status = models.CharField(max_length=50, default='PENDING') # PENDING, PROCESSING, COMPLETED, FAILED, INFEASIBLE
+    celery_task_id = models.CharField(max_length=255, null=True, blank=True)
+    
+    # Input
+    parameters = models.JSONField(default=dict, blank=True)
+    
+    # Output metrics
     score = models.FloatField(null=True, blank=True)
-    is_published = models.BooleanField(default=False)
     solver_metadata = models.JSONField(default=dict, blank=True)
+    
+    # Full Result Data
+    detailed_schedule = models.JSONField(default=list, blank=True)
+    detailed_penalties = models.JSONField(default=list, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    
+    is_published = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

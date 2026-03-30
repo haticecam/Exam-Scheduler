@@ -9,12 +9,16 @@ from rest_framework import serializers
 from django.http import HttpResponse
 
 from .models import Organization, CourseCatalog, AcademicUnit, Term, Student
-from .serializers import OrganizationSerializer, CourseCatalogSerializer, AcademicUnitSerializer, TermSerializer, StudentSerializer
+from .serializers import OrganizationSerializer, CourseCatalogSerializer, AcademicUnitSerializer, TermSerializer, \
+    StudentSerializer, OptimizeRequestSerializer, SimulateStudentsRequestSerializer
 from .tasks import dummy_gurobi_task
 from .services.simulator import StudentSimulatorService
 from .services.course_loader import CourseLoaderService
 from .services.enrollment_loader import EnrollmentLoaderService
 from .services.demo_updater import DemoUpdaterService
+import datetime
+from django.shortcuts import get_object_or_404
+from .models import GeneratedSolution
 
 class SystemStatusView(APIView):
     """
@@ -326,10 +330,6 @@ class StudentViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class SimulateStudentsRequestSerializer(serializers.Serializer):
-    term_id = serializers.UUIDField(required=False, help_text="Zorunlu değil. Belirtilmezse Active olan dönem kullanılır.")
-    academic_unit_id = serializers.UUIDField(required=False, help_text="Zorunlu değil. Sadece belirtilen academic unit için simülasyon yapar.")
-
 class SimulateStudentsView(APIView):
     """
     Endpoint to trigger the student enrollment simulation via Celery.
@@ -363,4 +363,173 @@ class SimulateStudentsView(APIView):
         response = HttpResponse(csv_content, content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="simulated_enrollments.csv"'
         return response
+
+class OptimizerViewSet(viewsets.ViewSet):
+    """
+    Gurobi Optimizasyon Motoru Kontrolcüsü.
+    """
+    
+    @extend_schema(request=OptimizeRequestSerializer)
+    @action(detail=False, methods=['post'], url_path='run')
+    def run_optimizer(self, request):
+        serializer = OptimizeRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        term_id = data['term_id']
+        
+        solution = GeneratedSolution.objects.create(
+            term_id=term_id,
+            name=data.get('name', f"Gen-{datetime.date.today()}"),
+            parameters={
+                'hard_threshold': data['hard_threshold'],
+                'time_limit': data['time_limit'],
+                'mip_gap': data['mip_gap'],
+                'no_back_to_back': data['no_back_to_back'],
+                'exam_days': data['exam_days'],
+                'slots_per_day': data['slots_per_day'],
+                'start_hour': data['start_hour']
+            },
+            status='PENDING'
+        )
+        
+        from .tasks import run_optimizer_task
+        run_optimizer_task.delay(str(solution.id))
+        
+        return Response({
+            "message": "Optimizasyon Celery üzerinden başlatıldı. Sonuçları DB üzerinden takip edebilirsiniz.",
+            "task_id": str(solution.id)
+        }, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(responses={200: {}})
+    @action(detail=False, methods=['get'], url_path='history')
+    def history(self, request):
+        """Tüm optimizasyon (çözüm) geçmişinin hafifletilmiş listesi."""
+        solutions = GeneratedSolution.objects.all().order_by('-created_at')[:50]
+        res = []
+        for s in solutions:
+            res.append({
+                "id": str(s.id),
+                "name": s.name,
+                "term_id": str(s.term_id) if s.term_id else None,
+                "status": s.status,
+                "score": s.score,
+                "created_at": s.created_at,
+                "parameters": s.parameters,
+                "stats": s.solver_metadata
+            })
+        return Response(res)
+
+    @extend_schema(responses={200: {}})
+    @action(detail=True, methods=['get'], url_path='result')
+    def result(self, request, pk=None):
+        """Seçili çözümün bütün detaylarını (Çizelge ve Ceza Dökümleri dahil) getirir."""
+        solution = get_object_or_404(GeneratedSolution, id=pk)
+        return Response({
+            "id": str(solution.id),
+            "name": solution.name,
+            "status": solution.status,
+            "score": solution.score,
+            "error_message": solution.error_message,
+            "parameters": solution.parameters,
+            "stats": solution.solver_metadata,
+            "schedule": solution.detailed_schedule,
+            "penalties": solution.detailed_penalties,
+        })
+
+    @extend_schema(responses={200: {}})
+    @action(detail=True, methods=['get'], url_path='departments')
+    def departments(self, request, pk=None):
+        """Seçili çözümdeki tüm bölümleri ve her bölümün sınav/ders sayısını listeler."""
+        solution = get_object_or_404(GeneratedSolution, id=pk)
+        schedule = solution.detailed_schedule or []
+
+        dept_stats = {}
+        for item in schedule:
+            dept = item.get("dept", "Bilinmiyor")
+            if dept not in dept_stats:
+                dept_stats[dept] = {"dept": dept, "exam_count": 0, "courses": set(), "rooms_used": set()}
+            dept_stats[dept]["exam_count"] += 1
+            dept_stats[dept]["courses"].add(item.get("course_name", ""))
+            dept_stats[dept]["rooms_used"].add(item.get("room", ""))
+
+        result = []
+        for dept, stats in sorted(dept_stats.items()):
+            result.append({
+                "dept": stats["dept"],
+                "unique_courses": len(stats["courses"]),
+                "total_room_assignments": stats["exam_count"],
+                "rooms_used": sorted(stats["rooms_used"]),
+            })
+
+        return Response({
+            "solution_id": str(solution.id),
+            "solution_name": solution.name,
+            "status": solution.status,
+            "total_departments": len(result),
+            "departments": result,
+        })
+
+    @extend_schema(
+        responses={200: {}},
+        parameters=[
+            OpenApiParameter(name='dept', type=str, location=OpenApiParameter.QUERY,
+                             description='Bölüm adı (Örn: BİLGİSAYAR MÜH.)', required=True),
+        ]
+    )
+    @action(detail=True, methods=['get'], url_path='by-department')
+    def by_department(self, request, pk=None):
+        """
+        Seçili çözümün belirli bir bölüme ait sınav çizelgesini ve ceza dökümünü döner.
+        Query param: ?dept=BİLGİSAYAR MÜH.
+        """
+        solution = get_object_or_404(GeneratedSolution, id=pk)
+        dept_filter = request.query_params.get('dept', '').strip()
+
+        if not dept_filter:
+            return Response({"error": "'dept' query parametresi zorunludur. Örn: ?dept=BİLGİSAYAR MÜH."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        schedule = solution.detailed_schedule or []
+        penalties = solution.detailed_penalties or []
+
+        # Bölüme göre filtrele
+        dept_schedule = [s for s in schedule if s.get("dept", "").upper() == dept_filter.upper()]
+        dept_penalties = [p for p in penalties
+                         if p.get("dept_a", "").upper() == dept_filter.upper()
+                         or p.get("dept_b", "").upper() == dept_filter.upper()]
+
+        # Aynı derse ait birden fazla oda atamasını grupla
+        from collections import defaultdict
+        course_groups = defaultdict(lambda: {"rooms": [], "total_cap": 0})
+        for item in dept_schedule:
+            key = (item["course_name"], item["day"], item["time"])
+            course_groups[key]["rooms"].append(item["room"])
+            course_groups[key]["total_cap"] += item["room_cap"]
+            course_groups[key]["detail"] = item
+
+        grouped_schedule = []
+        for (course, day, time), data in sorted(course_groups.items(), key=lambda x: x[1]["detail"]["start_slot"]):
+            d = data["detail"]
+            grouped_schedule.append({
+                "day": day,
+                "time": time,
+                "course_name": course,
+                "code": d["code"],
+                "year": d["year"],
+                "requirement": d["requirement"],
+                "enrolled": d["enrolled"],
+                "rooms": data["rooms"],
+                "total_room_capacity": data["total_cap"],
+            })
+
+        return Response({
+            "solution_id": str(solution.id),
+            "solution_name": solution.name,
+            "department": dept_filter,
+            "total_exams": len(grouped_schedule),
+            "total_penalties": len(dept_penalties),
+            "schedule": grouped_schedule,
+            "penalties": dept_penalties,
+        })
 
