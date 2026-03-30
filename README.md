@@ -1,59 +1,76 @@
 # Exam Scheduler API
 
-A modular, highly scalable API designed to manage university exam scheduling and student enrollments. Powered by Django, PostgreSQL, Redis, Celery, and the Gurobi Optimization Engine.
+A modular, highly scalable API designed to manage university exam scheduling and student enrollments. Powered by Django, PostgreSQL, Redis, Celery, and the Gurobi Optimization Engine (MILP).
 
-## Features
+## 🚀 Features
 - **Course & Department Management:** Automatically generates departments, instructors, courses, and course sections via CSV upload (`CourseLoaderService`).
-- **Data Extrapolation:** Estimates accurate academic unit demographics using historical data (`DemoUpdaterService`).
-- **Student Simulator:** Generates realistic, fully randomized student course enrollment plans to emulate a live university environment (`StudentSimulatorService`).
-- **Continuous Enrollments:** Upload batch realistic enrollments, instantly populating DB matrices (`EnrollmentLoaderService`).
-- **Containerized Architecture:** Fully independent deployments built with `docker-compose`.
+- **Dynamic Optimization Planning:** Scheduling units are automatically split by department (e.g., PHYSICS I for CS is planned independently from PHYSICS I for SE), ensuring realistic constraint management.
+- **Asynchronous Solver:** Optimization runs are handled by Celery workers to prevent HTTP timeouts. Supporting long-running Gurobi jobs (from 5 mins to hours).
+- **IIS Diagnostics:** If a schedule is "Infeasible," the system automatically performs an Irreducible Inconsistent Subsystem (IIS) analysis to tell you exactly which constraints are conflicting (e.g., "Not enough room capacity for Physics I").
+- **Student Simulator:** Generates realistic, fully randomized student course enrollment plans to emulate a live university environment.
+- **Departmental Views:** Dedicated endpoints to view results filtered and grouped by department.
 
-## Technologies Used
+## 🛠 Technologies Used
 - **Backend:** Django 5 / Django REST Framework
-- **Databases:** PostgreSQL (Primary DB), Redis (Broker/Cache)
-- **Background Operations:** Celery
-- **Optimization:** Gurobi MILP Engine
-- **DevOps:** Docker
+- **Optimization:** Gurobi MILP Engine (Academic WLS)
+- **Background Tasks:** Celery + Redis
+- **Database:** PostgreSQL
+- **DevOps:** Docker & Docker Compose
+- **API Docs:** Swagger (drf-spectacular)
 
-## Quickstart (Docker)
+## 📦 Installation & Setup
 
-1. Clone the repository and enter the projected folder:
+1. **Clone the repository:**
    ```bash
    git clone https://github.com/haticecam/exam-scheduler.git
    cd exam-scheduler
    ```
 
-2. Generate your local environment file:
+2. **Gurobi WLS License Setup:**
+   *   Log in to [Gurobi User Portal](https://portal.gurobi.com/).
+   *   Go to **Licenses > Web License Service (WLS)**.
+   *   Click on your Active Academic WLS license and click **Download License**.
+   *   Open the `gurobi.lic` file. You will need `WLSACCESSID`, `WLSSECRET`, and `LICENSEID`.
+
+3. **Environment Configuration:**
    ```bash
    cp .env.example .env
    ```
-   *Edit `.env` to include your target `POSTGRES_PASSWORD` and `GRB_LICENSEID` inside.*
+   Edit `.env` and fill in your Gurobi credentials:
+   ```env
+   GRB_WLSACCESSID=your_access_id
+   GRB_WLSSECRET=your_secret
+   GRB_LICENSEID=your_license_number
+   ```
 
-3. Build and bring up the containers:
+4. **Run with Docker:**
    ```bash
    docker compose up -d --build
    ```
 
-4. Follow along with container logs:
-   ```bash
-   docker compose logs -f
-   ```
+5. **Access Swagger UI:**
+   Navigate to `http://localhost:8000/api/docs/` to interact with the API.
 
-5. Access the API documentation (Swagger) via:
-   ```
-   http://localhost:8000/api/docs/
-   ```
+## 💡 Usage Workflow
 
-## Initial Setup & Endpoints
+### 1. Data Ingestion
+1.  **Organization:** `POST /api/organizations/`
+2.  **Term:** `POST /api/terms/` (Status: Active)
+3.  **Upload Catalog:** `POST /api/courses/upload/` (Upload your university CSV)
+4.  **Enrollments:** `POST /api/students/` (Upload student-course mappings)
+5. **Update Estimates (Demo Mode):** `POST /api/academic-units/update-estimates/` processes previous semesters to estimate cohort capabilities.
 
-Once your server is running, use Swagger to populate the database sequentially:
-1. **Create Organization:** `POST /api/organizations/`
-2. **Create Term:** `POST /api/terms/` (using the generated Organization ID).
-3. **Course Bulk Upload:** `POST /api/courses/upload/` providing a CSV string matching typical catalog output and binding it directly to the Term ID.
-4. **Update Estimates (Demo Mode):** `POST /api/academic-units/update-estimates/` processes previous semesters to estimate cohort capabilities.
-5. **Simulate (Demo Mode):** `POST /api/simulateStudents/` renders an ad-hoc `.csv` array simulating `n` enrolled students.
-6. **Apply Enrollments:** `POST /api/students/` inputs real/simulated students to calculate course shared capacities.
+### 2. Optimization
+1.  **Run Solver:** `POST /api/optimize/run/`
+    *   Parameters: `exam_days`, `slots_per_day`, `start_hour`, `hard_threshold`, `no_back_to_back`.
+    *   Returns a `task_id` for tracking.
+2.  **Monitor Progress:** Use `GET /api/optimize/history/` to see the status (PENDING, PROCESSING, OPTIMAL, INFEASIBLE).
+3.  **View Results:**
+    *   `GET /api/optimize/{id}/result/`: Full solution JSON.
+    *   `GET /api/optimize/{id}/departments/`: List of departments in the solution.
+    *   `GET /api/optimize/{id}/by-department/?dept=DEPT_NAME`: Filtered and grouped schedule for a specific department.
 
-You are now ready to execute the Optimizer logic!
-
+## 🔍 Diagnostics
+If the solver status is `INFEASIBLE`, check the `result` endpoint. The `stats.diagnostics` field will contain:
+- Conflicting constraint types (Capacity, Hard Conflicts, etc.)
+- Specific recommendations on how to fix the model (e.g., "Increase exam_days to 7").
