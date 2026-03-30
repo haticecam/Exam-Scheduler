@@ -272,14 +272,14 @@ class StudentViewSet(viewsets.ModelViewSet):
                         acb.name  AS course_b_name,
                         acb.code  AS course_b_code,
                         aua.name  AS dept_b
-                    FROM core_enrollment     e1
-                    JOIN core_enrollment     e2  ON e1.student_id = e2.student_id
-                    JOIN core_coursesection sa  ON e1.section_id = sa.id
-                    JOIN core_coursesection sb  ON e2.section_id = sb.id
-                    JOIN core_coursecatalog  aca ON sa.course_id = aca.id
-                    JOIN core_coursecatalog  acb ON sb.course_id = acb.id
-                    JOIN core_academicunit  aub ON aca.academic_unit_id = aub.id
-                    JOIN core_academicunit  aua ON acb.academic_unit_id = aua.id
+                    FROM enrollment     e1
+                    JOIN enrollment     e2  ON e1.student_id = e2.student_id
+                    JOIN course_section sa  ON e1.section_id = sa.id
+                    JOIN course_section sb  ON e2.section_id = sb.id
+                    JOIN course_catalog  aca ON sa.course_id = aca.id
+                    JOIN course_catalog  acb ON sb.course_id = acb.id
+                    JOIN academic_unit  aub ON aca.academic_unit_id = aub.id
+                    JOIN academic_unit  aua ON acb.academic_unit_id = aua.id
                     WHERE sa.course_id::text < sb.course_id::text
                 """
                 

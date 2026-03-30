@@ -54,13 +54,13 @@ class OptimizerService:
                     sg.academic_unit_id::text     AS student_dept_id,
                     au_student.name               AS student_dept,
                     COUNT(DISTINCT e.student_id)  AS enrolled_count
-                FROM core_enrollment e
-                JOIN core_coursesection cs      ON e.section_id = cs.id
-                JOIN core_coursecatalog cc      ON cs.course_id = cc.id
-                JOIN core_student st            ON e.student_id = st.id
-                JOIN core_studentgroup sg       ON st.student_group_id = sg.id
-                JOIN core_academicunit au_student ON sg.academic_unit_id = au_student.id
-                JOIN core_academicunit au_course  ON cc.academic_unit_id = au_course.id
+                FROM enrollment e
+                JOIN course_section cs      ON e.section_id = cs.id
+                JOIN course_catalog cc      ON cs.course_id = cc.id
+                JOIN student st            ON e.student_id = st.id
+                JOIN student_group sg       ON st.student_group_id = sg.id
+                JOIN academic_unit au_student ON sg.academic_unit_id = au_student.id
+                JOIN academic_unit au_course  ON cc.academic_unit_id = au_course.id
                 WHERE cc.year_level IS NOT NULL
                   AND cc.requirement IS NOT NULL
                   AND cc.name NOT ILIKE '%%graduation%%'
@@ -88,12 +88,12 @@ class OptimizerService:
                     sb.course_id::text            AS cb,
                     sg.academic_unit_id::text     AS dept_id,
                     COUNT(DISTINCT e1.student_id) AS shared
-                FROM core_enrollment e1
-                JOIN core_enrollment e2          ON e1.student_id = e2.student_id
-                JOIN core_coursesection sa       ON e1.section_id = sa.id
-                JOIN core_coursesection sb       ON e2.section_id = sb.id
-                JOIN core_student st             ON e1.student_id = st.id
-                JOIN core_studentgroup sg        ON st.student_group_id = sg.id
+                FROM enrollment e1
+                JOIN enrollment e2          ON e1.student_id = e2.student_id
+                JOIN course_section sa       ON e1.section_id = sa.id
+                JOIN course_section sb       ON e2.section_id = sb.id
+                JOIN student st             ON e1.student_id = st.id
+                JOIN student_group sg        ON st.student_group_id = sg.id
                 WHERE sa.course_id <> sb.course_id
                 GROUP BY sa.course_id, sb.course_id, sg.academic_unit_id
                 HAVING COUNT(DISTINCT e1.student_id) > 0

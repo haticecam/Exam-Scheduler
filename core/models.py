@@ -83,6 +83,9 @@ class Organization(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'organization'
+
 class AcademicUnit(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='academic_units')
@@ -92,6 +95,9 @@ class AcademicUnit(models.Model):
     is_locked = models.BooleanField(default=False)
     scheduling_config = models.JSONField(default=dict, blank=True)
     deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'academic_unit'
 
 class User(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -104,6 +110,7 @@ class User(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        db_table = 'user'
         constraints = [
             models.UniqueConstraint(fields=['organization', 'email'], name='uq_org_email')
         ]
@@ -119,12 +126,18 @@ class AttributeDefinition(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'attribute_definition'
+
 class Term(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='terms')
     name = models.CharField(max_length=255)
     date_range = models.CharField(max_length=255, null=True, blank=True)
     status = models.CharField(max_length=20, choices=TermStatus.choices, default=TermStatus.PLANNING)
+
+    class Meta:
+        db_table = 'term'
 
 
 # 3. TIME GRID
@@ -133,6 +146,9 @@ class TimeGridTemplate(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='time_grid_templates')
     name = models.CharField(max_length=255)
     is_default = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'time_grid_template'
 
 class TimeSlot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -143,6 +159,9 @@ class TimeSlot(models.Model):
     label = models.CharField(max_length=255, null=True, blank=True)
     kind = models.CharField(max_length=20, choices=TimeslotKind.choices, default=TimeslotKind.LECTURE)
     is_excluded = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'time_slot'
 
 
 # 4. RESOURCES, INSTRUCTORS, COURSES
@@ -157,6 +176,7 @@ class Resource(models.Model):
     is_active = models.BooleanField(default=True)
 
     class Meta:
+        db_table = 'resource'
         indexes = [
             models.Index(fields=['attributes'], name='ix_resource_attributes')
         ]
@@ -172,6 +192,7 @@ class Instructor(models.Model):
     attributes = models.JSONField(default=dict, blank=True)
 
     class Meta:
+        db_table = 'instructor'
         indexes = [
             models.Index(fields=['availability_exceptions'], name='ix_instructor_exceptions')
         ]
@@ -183,6 +204,9 @@ class StudentGroup(models.Model):
     name = models.CharField(max_length=255)
     size_estimate = models.IntegerField(null=True, blank=True)
     year_level = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'student_group'
 
 class CourseCatalog(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -199,6 +223,9 @@ class CourseCatalog(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'course_catalog'
+
 class CoursePrerequisite(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     course = models.ForeignKey(CourseCatalog, on_delete=models.CASCADE, related_name='requisites_for')
@@ -206,6 +233,7 @@ class CoursePrerequisite(models.Model):
     type = models.CharField(max_length=20, choices=PrerequisiteType.choices, default=PrerequisiteType.PREREQUISITE)
 
     class Meta:
+        db_table = 'course_prerequisite'
         constraints = [
             models.UniqueConstraint(fields=['course', 'prerequisite'], name='uq_course_prereq'),
             models.CheckConstraint(check=~models.Q(course=models.F('prerequisite')), name='chk_no_self_prereq')
@@ -221,7 +249,10 @@ class CourseSection(models.Model):
     section_code = models.CharField(max_length=50, null=True, blank=True)
     attributes = models.JSONField(default=dict, blank=True)
     version = models.IntegerField(default=1)
-    student_groups = models.ManyToManyField(StudentGroup, related_name='sections', blank=True)
+    student_groups = models.ManyToManyField(StudentGroup, related_name='sections', blank=True, db_table='coursesection_student_groups')
+
+    class Meta:
+        db_table = 'course_section'
 
 class SectionMeeting(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -232,12 +263,18 @@ class SectionMeeting(models.Model):
     required_resources = models.JSONField(default=dict, blank=True)
     is_fixed = models.BooleanField(default=False)
 
+    class Meta:
+        db_table = 'section_meeting'
+
 
 # 5. SOLVER ENGINE
 class ConstraintBlueprint(models.Model):
     code = models.CharField(max_length=255, primary_key=True)
     description = models.TextField(null=True, blank=True)
     param_schema = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'constraint_blueprint'
 
 class ScenarioConstraint(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -248,6 +285,9 @@ class ScenarioConstraint(models.Model):
     parameters = models.JSONField(default=dict, blank=True)
     weight = models.IntegerField(default=0)
     is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = 'scenario_constraint'
 
 class GeneratedSolution(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -275,6 +315,9 @@ class GeneratedSolution(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        db_table = 'generated_solution'
+
 class Assignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     solution = models.ForeignKey(GeneratedSolution, on_delete=models.CASCADE, related_name='assignments')
@@ -283,6 +326,9 @@ class Assignment(models.Model):
     time_slot = models.ForeignKey(TimeSlot, null=True, blank=True, on_delete=models.SET_NULL, related_name='assignments')
     date = models.DateField(null=True, blank=True)
     is_locked = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'assignment'
 
 
 # 6. EXAM SCHEDULING
@@ -295,6 +341,9 @@ class ExamPeriod(models.Model):
     end_date = models.DateField()
     config = models.JSONField(default=dict, blank=True)
 
+    class Meta:
+        db_table = 'exam_period'
+
 class ExamDateSlot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     exam_period = models.ForeignKey(ExamPeriod, on_delete=models.CASCADE, related_name='date_slots')
@@ -304,6 +353,9 @@ class ExamDateSlot(models.Model):
     label = models.CharField(max_length=255, null=True, blank=True)
     is_blocked = models.BooleanField(default=False)
 
+    class Meta:
+        db_table = 'exam_date_slot'
+
 class Exam(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     exam_period = models.ForeignKey(ExamPeriod, on_delete=models.CASCADE, related_name='exams')
@@ -311,7 +363,10 @@ class Exam(models.Model):
     duration_minutes = models.IntegerField()
     is_common = models.BooleanField(default=False)
     attributes = models.JSONField(default=dict, blank=True)
-    sections = models.ManyToManyField(CourseSection, related_name='exams')
+    sections = models.ManyToManyField(CourseSection, related_name='exams', db_table='exam_sections')
+
+    class Meta:
+        db_table = 'exam'
 
 class ExamAssignment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -321,11 +376,17 @@ class ExamAssignment(models.Model):
     resource = models.ForeignKey(Resource, null=True, blank=True, on_delete=models.SET_NULL, related_name='exam_assignments')
     is_locked = models.BooleanField(default=False)
 
+    class Meta:
+        db_table = 'exam_assignment'
+
 class ExamInvigilator(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     exam_assignment = models.ForeignKey(ExamAssignment, on_delete=models.CASCADE, related_name='invigilators')
     instructor = models.ForeignKey(Instructor, on_delete=models.CASCADE, related_name='invigilators')
     role = models.CharField(max_length=50, default='Invigilator')
+
+    class Meta:
+        db_table = 'exam_invigilator'
 
 
 # 7. STUDENT & ENROLLMENT DATA
@@ -336,6 +397,9 @@ class Student(models.Model):
     year_level = models.SmallIntegerField(null=True, blank=True)
     identifier = models.CharField(max_length=255, null=True, blank=True)
 
+    class Meta:
+        db_table = 'student'
+
 class Enrollment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(Student, on_delete=models.CASCADE, related_name='enrollments')
@@ -343,6 +407,7 @@ class Enrollment(models.Model):
     term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='enrollments')
 
     class Meta:
+        db_table = 'enrollment'
         constraints = [
             models.UniqueConstraint(fields=['student', 'section'], name='uq_student_section')
         ]
