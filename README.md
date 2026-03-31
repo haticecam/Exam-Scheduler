@@ -70,6 +70,17 @@ A modular, highly scalable API designed to manage university exam scheduling and
     *   `GET /api/optimize/{id}/departments/`: List of departments in the solution.
     *   `GET /api/optimize/{id}/by-department/?dept=DEPT_NAME`: Filtered and grouped schedule for a specific department.
 
+## 🐳 Docker Commands
+
+| Situation | Command |
+|---|---|
+| Only Python code changed | `docker compose restart web` |
+| `requirements.txt` changed | `docker compose up --build web` |
+| Dockerfile / docker-compose.yml / migrations changed | `docker compose down && docker compose up --build` |
+| Reset everything including the database ⚠️ | `docker compose down -v && docker compose up --build` |
+
+> **Warning:** The `-v` flag removes the database volume. All data will be permanently lost.
+
 ## 🔍 Diagnostics
 If the solver status is `INFEASIBLE`, check the `result` endpoint. The `stats.diagnostics` field will contain:
 - Conflicting constraint types (Capacity, Hard Conflicts, etc.)
