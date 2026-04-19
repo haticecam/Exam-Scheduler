@@ -1,47 +1,73 @@
 "use client";
 import React from "react";
-import { COLORS } from "@/lib/colors";
-import { MOCK } from "@/lib/mockData";
-import Badge from "@/components/ui/Badge";
+import { useRouter } from "next/navigation";
+import { C, mono } from "@/lib/colors";
+import { useFetch, api } from "@/lib/api";
+import { Card, Spinner, ErrorBox, Badge, PageHeader, DataTable, DataRow, DataCell, ActionButton } from "@/components/ui";
 
 export default function SolutionsPage() {
+  const router = useRouter();
+  const { data, loading, error, refetch } = useFetch("/optimize/history/");
+  const solutions = data?.results || data || [];
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Bu çözüm silinecek. Emin misin?")) return;
+    setDeletingId(id);
+    try {
+      await api.delete(`/optimize/${id}/`);
+      refetch();
+    } catch (e: any) {
+      alert(e.message || "Silme başarısız.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const DONE = ["COMPLETED", "OPTIMAL", "FEASIBLE", "FEASIBLE (TIME LIMIT)"];
+
   return (
-    <div>
-      <h2 style={{ fontSize: 26, fontWeight: 700, color: COLORS.text, margin: "0 0 6px", fontFamily: "monospace" }}>Çözüm Geçmişi</h2>
-      <p style={{ color: COLORS.textMuted, fontSize: 14, marginBottom: 24 }}>Üretilen tüm çizelgeleme çözümleri ve metrikleri.</p>
-      
-      <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 10, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ borderBottom: `1px solid ${COLORS.border}` }}>
-              {["ÇÖZÜM ADI", "TARİH", "DURUM", "SKOR", "ÇAKIŞMA", "SÜRE", ""].map(h => (
-                <th key={h} style={{ padding: "12px 16px", fontSize: 10, color: COLORS.textMuted, fontFamily: "monospace", letterSpacing: "0.08em", textAlign: "left", fontWeight: 600 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {MOCK.solutions.map((s) => (
-              <tr key={s.id} style={{ borderBottom: `1px solid ${COLORS.border}33` }}>
-                <td style={{ padding: "14px 16px", color: COLORS.text, fontFamily: "monospace", fontSize: 13, fontWeight: 600 }}>{s.name}</td>
-                <td style={{ padding: "14px 16px", color: COLORS.textMuted, fontSize: 12 }}>{s.date}</td>
-                <td style={{ padding: "14px 16px" }}><Badge status={s.status} /></td>
-                <td style={{ padding: "14px 16px", fontFamily: "monospace", fontSize: 14, color: s.score ? COLORS.green : COLORS.textMuted, fontWeight: s.score ? 700 : 400 }}>
-                  {s.score ? `${s.score}` : "—"}
-                </td>
-                <td style={{ padding: "14px 16px", fontFamily: "monospace", fontSize: 13, color: s.conflicts === 0 ? COLORS.green : s.conflicts ? COLORS.amber : COLORS.textMuted }}>
-                  {s.conflicts !== null ? s.conflicts : "—"}
-                </td>
-                <td style={{ padding: "14px 16px", color: COLORS.textMuted, fontSize: 12, fontFamily: "monospace" }}>{s.time}</td>
-                <td style={{ padding: "14px 16px" }}>
-                  {s.status === "COMPLETED" && (
-                    <span style={{ fontSize: 11, color: COLORS.accent, fontFamily: "monospace", cursor: "pointer", border: `1px solid ${COLORS.accent}44`, borderRadius: 4, padding: "3px 8px" }}>Görüntüle</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div style={{ padding: "32px 40px" }}>
+      <PageHeader
+        title="Çözüm Geçmişi"
+        subtitle="Tüm sınav takvimi senaryoları ve arşiv"
+        actions={
+          <ActionButton onClick={refetch} variant="secondary" icon="↻">Yenile</ActionButton>
+        }
+      />
+
+      {error && <div style={{ marginBottom: 16 }}><ErrorBox msg={error} /></div>}
+      {loading && <div style={{ display: "flex", gap: 10, alignItems: "center", color: C.textMuted, marginBottom: 16 }}><Spinner size={20} /><span>Yükleniyor…</span></div>}
+
+      {!loading && !solutions.length ? (
+        <Card style={{ padding: "80px 40px", textAlign: "center", color: C.textMuted }}>
+          Henüz kayıtlı bir senaryo bulunamadı.
+        </Card>
+      ) : (
+        <DataTable headers={["Senaryo Adı", "Tarih", "Durum"]}>
+          {solutions.map((s: any) => (
+            <DataRow key={s.id}>
+              <DataCell style={{ fontWeight: 600, ...mono }}>{s.name || `Senaryo #${String(s.id).slice(0, 8)}`}</DataCell>
+              <DataCell style={{ color: C.textMuted }}>{s.created_at ? new Date(s.created_at).toLocaleDateString("tr-TR") : "—"}</DataCell>
+              <DataCell><Badge status={s.status} /></DataCell>
+              <DataCell style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                {DONE.includes(s.status) && (
+                  <ActionButton onClick={() => router.push(`/schedule?id=${s.id}`)} variant="secondary">
+                    Takvimi Görüntüle
+                  </ActionButton>
+                )}
+                <ActionButton
+                  onClick={() => handleDelete(s.id)}
+                  variant="danger"
+                  disabled={deletingId === s.id}
+                >
+                  {deletingId === s.id ? "..." : "Sil"}
+                </ActionButton>
+              </DataCell>
+            </DataRow>
+          ))}
+        </DataTable>
+      )}
     </div>
   );
 }

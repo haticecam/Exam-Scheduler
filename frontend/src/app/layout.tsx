@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AuthProvider } from "@/context/AuthContext";
-import AppShell from "@/components/layout/AppShell";
+import Sidebar from "@/components/Sidebar";
+import Topbar from "@/components/Topbar";
 
 export const metadata: Metadata = {
   title: "Exam Scheduler",
-  description: "Next.js tabanlı Sınav Çizelgeleme Ekranı",
 };
 
 export default function RootLayout({
@@ -15,12 +14,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="tr">
-      <body style={{ margin: 0 }}>
-        <AuthProvider>
-          <AppShell>
+      <body style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+        <Sidebar />
+        <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          <Topbar />
+          <div style={{ padding: "32px 36px", flex: 1 }}>
             {children}
-          </AppShell>
-        </AuthProvider>
+          </div>
+        </main>
       </body>
     </html>
   );
