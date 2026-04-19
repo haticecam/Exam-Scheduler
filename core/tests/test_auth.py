@@ -109,3 +109,57 @@ def test_register_rejects_password_mismatch(client):
         'password2': 'Different!',
     }, content_type='application/json')
     assert response.status_code == 400
+
+
+# --- Password Reset ---
+
+@pytest.mark.django_db
+def test_reset_request_returns_200_for_existing_email(client):
+    User.objects.create_user('resetuser', 'reset@example.com', 'OldPass123!')
+    response = client.post('/api/auth/password-reset/', data={
+        'email': 'reset@example.com',
+    }, content_type='application/json')
+    assert response.status_code == 200
+    data = response.json()
+    assert 'uid' in data
+    assert 'token' in data
+
+
+@pytest.mark.django_db
+def test_reset_request_returns_200_for_unknown_email(client):
+    response = client.post('/api/auth/password-reset/', data={
+        'email': 'nobody@example.com',
+    }, content_type='application/json')
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+def test_reset_confirm_sets_new_password(client):
+    from django.contrib.auth.tokens import default_token_generator
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+    user = User.objects.create_user('resetuser2', 'r2@example.com', 'OldPass123!')
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    response = client.post('/api/auth/password-reset/confirm/', data={
+        'uid': uid,
+        'token': token,
+        'new_password': 'NewPass456!',
+    }, content_type='application/json')
+    assert response.status_code == 200
+    user.refresh_from_db()
+    assert user.check_password('NewPass456!')
+
+
+@pytest.mark.django_db
+def test_reset_confirm_rejects_invalid_token(client):
+    from django.utils.encoding import force_bytes
+    from django.utils.http import urlsafe_base64_encode
+    user = User.objects.create_user('resetuser3', 'r3@example.com', 'OldPass123!')
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    response = client.post('/api/auth/password-reset/confirm/', data={
+        'uid': uid,
+        'token': 'invalid-token',
+        'new_password': 'NewPass456!',
+    }, content_type='application/json')
+    assert response.status_code == 400
