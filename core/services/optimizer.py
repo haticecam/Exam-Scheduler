@@ -2,10 +2,12 @@ from collections import defaultdict
 from django.db import connection
 import logging
 import os
+import datetime
+from core.models import Resource, Organization
 
 logger = logging.getLogger(__name__)
 
-ROOMS: dict[str, int] = {
+DEFAULT_ROOMS: dict[str, int] = {
     "CZ08-09":   132 // 3, "C111-112":  135 // 3, "A222-224":  77 // 3,
     "A218-219":  80 // 3,  "A203-204":  72 // 3,  "A207-208":  72 // 3,
     "A319-320":  72 // 3,  "A315-316":  80 // 3,  "A303-304":  68 // 3,
@@ -31,6 +33,34 @@ class OptimizerService:
 
     def __init__(self, term_id: str):
         self.term_id = str(term_id)
+
+    @staticmethod
+    def get_dynamic_rooms() -> dict[str, int]:
+        """
+        Veritabanından odaları (Resources) yükler. 
+        Eğer tablo boşsa DEFAULT_ROOMS ile doldurur.
+        """
+        org = Organization.objects.first()
+        resources = Resource.objects.filter(organization=org) if org else Resource.objects.all()
+        
+        if not resources.exists():
+            logger.info("Resource tablosu boş, DEFAULT_ROOMS ile dolduruluyor...")
+            if not org:
+                # Organizasyon yoksa oluştur (fallback)
+                org = Organization.objects.create(name="Default Organization")
+            
+            new_resources = []
+            for name, cap in DEFAULT_ROOMS.items():
+                new_resources.append(Resource(
+                    organization=org,
+                    name=name,
+                    capacity=cap,
+                    type='CLASSROOM'
+                ))
+            Resource.objects.bulk_create(new_resources)
+            return DEFAULT_ROOMS
+            
+        return {r.name: r.capacity for r in resources}
 
     def _dictfetchall(self, cursor):
         desc = cursor.description
@@ -116,6 +146,7 @@ class OptimizerService:
         except ImportError:
             raise Exception("Gurobipy module not found. Please install gurobipy and configure licenses.")
 
+        rooms = self.get_dynamic_rooms()
         courses = self.load_courses()
         conflicts = self.load_conflict_matrix()
 
@@ -174,7 +205,7 @@ class OptimizerService:
 
         x_start = {}
         for c in C:
-            for r in ROOMS:
+            for r in rooms:
                 for s in valid_starts(c):
                     x_start[(c, r, s)] = m.addVar(vtype=GRB.BINARY, name=f"x[{short[c]},{r},{s}]")
 
@@ -192,9 +223,9 @@ class OptimizerService:
             enrolled = info[c]["enrolled_count"]
             for s in valid_starts(c):
                 m.addConstr(
-                    quicksum(x_start[(c, r, s)] * ROOMS[r] for r in ROOMS) >= enrolled * y[(c, s)],
+                    quicksum(x_start[(c, r, s)] * rooms[r] for r in rooms) >= enrolled * y[(c, s)],
                     name=f"cap[{short[c]},{s}]")
-                for r in ROOMS:
+                for r in rooms:
                     m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
                                 name=f"link[{short[c]},{r},{s}]")
 
@@ -203,7 +234,7 @@ class OptimizerService:
             dur = info[c]["duration"]
             return quicksum(y[(c, s)] for s in valid_starts(c) if s <= t < s + dur)
 
-        for r in ROOMS:
+        for r in rooms:
             for t in range(n_slots):
                 occupied = quicksum(
                     x_start[(c, r, s)] for c in C
@@ -241,6 +272,7 @@ class OptimizerService:
 
         # === Soft Constraints ===
         conflict_vars = []
+        # A. Student Overlap Penalty (Same slot overlap)
         for (ua, ub), shared in conflicts.items():
             if shared > hard_threshold or ua not in info or ub not in info:
                 continue
@@ -248,6 +280,7 @@ class OptimizerService:
             req_a, req_b = info[ua]["requirement"], info[ub]["requirement"]
             yr_a, yr_b = info[ua]["year_level"], info[ub]["year_level"]
 
+            # Base weight for overlap
             base = (BASE_W_MM if req_a == req_b == "COMPULSORY"
                     else (BASE_W_ME if "COMPULSORY" in (req_a, req_b) else BASE_W_EE))
             w = base * YEAR_DIFF_FACTOR.get(abs(yr_a - yr_b), 0.5) * (shared / hard_threshold)
@@ -255,11 +288,38 @@ class OptimizerService:
             for t in range(n_slots):
                 z = m.addVar(vtype=GRB.BINARY, name=f"z[{short[ua]},{short[ub]},{t}]")
                 m.addConstr(z >= v_expr(ua, t) + v_expr(ub, t) - 1)
-                conflict_vars.append((z, w, ua, ub, t, shared))
+                desc = f"{info[ua]['code']} ve {info[ub]['code']} dersleri çakışıyor ({shared} ortak öğrenci)."
+                conflict_vars.append({
+                    "var": z, "weight": w, "ua": ua, "ub": ub, "t": t, 
+                    "shared": shared, "desc": desc, "type": "OVERLAP"
+                })
+
+        # B. Daily Spread Penalty (Same day penalty)
+        # Groups: (dept, year) -> students having multiple exams in a single day
+        SAME_DAY_W = 200.0
+        daily_spread_vars = []
+        for (dept, year), group_courses in groups.items():
+            if len(group_courses) < 2: continue
+            for d in range(exam_days):
+                # z_day is 1 if >1 exam in day d for this group
+                active_days = [quicksum(y[(c, s)] for s in valid_starts(c) if s // slots_per_day == d)
+                              for c in group_courses]
+                if not active_days: continue
+                
+                z_day = m.addVar(vtype=GRB.INTEGER, name=f"z_day[{dept[:5]},{year},{d}]")
+                m.addConstr(z_day >= quicksum(active_days) - 1)
+                m.addConstr(z_day >= 0)
+                
+                desc = f"{dept} {year}. Sınıf öğrencilerinin aynı gün ({day_labels[d]}) birden fazla sınavı var."
+                daily_spread_vars.append({
+                    "var": z_day, "weight": SAME_DAY_W, "d": d, "dept": dept, "year": year, "desc": desc
+                })
 
         # === Objective ===
         m.setObjective(
-            quicksum(w * z for (z, w, *_) in conflict_vars) + minimize_rooms_used,
+            quicksum(cv["weight"] * cv["var"] for cv in conflict_vars) +
+            quicksum(dv["weight"] * dv["var"] for dv in daily_spread_vars) +
+            minimize_rooms_used,
             GRB.MINIMIZE)
         m.Params.MIPGap = mip_gap
         m.Params.MIPFocus = 1
@@ -281,13 +341,13 @@ class OptimizerService:
             start_s = slots_valid[0]
             day, session = start_s // slots_per_day, start_s % slots_per_day
 
-            for r in ROOMS:
+            for r in rooms:
                 if (c, r, start_s) in x_start and x_start[(c, r, start_s)].X > 0.5:
                     schedule.append({
                         "start_slot": start_s, "duration": dur,
                         "day": day_labels[day],
                         "time": f"{slot_starts[session]}-{slot_ends[session + dur - 1]}",
-                        "room": r, "room_cap": ROOMS[r],
+                        "room": r, "room_cap": rooms[r],
                         "enrolled": info[c]["enrolled_count"],
                         "course_id": info[c]["course_id"],
                         "code": info[c]["code"],
@@ -301,21 +361,38 @@ class OptimizerService:
 
         penalties = []
         total_penalty = 0.0
-        for (z, w, ua, ub, t, shared) in conflict_vars:
-            if z.X < 0.5:
-                continue
-            total_penalty += w * z.X
-            day, session = t // slots_per_day, t % slots_per_day
-            penalties.append({
-                "day": day_labels[day],
-                "time": f"{slot_starts[session]}-{slot_ends[session]}",
-                "course_a": info[ua]["name"], "dept_a": info[ua]["student_dept"],
-                "year_a": info[ua]["year_level"], "req_a": info[ua]["requirement"],
-                "course_b": info[ub]["name"], "dept_b": info[ub]["student_dept"],
-                "year_b": info[ub]["year_level"], "req_b": info[ub]["requirement"],
-                "shared_students": shared,
-                "weight": round(w, 3), "penalty": round(w * z.X, 3),
-            })
+        # Add Overlap Penalties
+        for cv in conflict_vars:
+            if cv["var"].X > 0.5:
+                total_penalty += cv["weight"] * cv["var"].X
+                day, session = cv["t"] // slots_per_day, cv["t"] % slots_per_day
+                penalties.append({
+                    "desc": cv["desc"],
+                    "penalty": round(cv["weight"] * cv["var"].X, 1),
+                    "day": day_labels[day],
+                    "type": "ÇAKIŞMA"
+                })
+        
+        # Add Daily Spread Penalties
+        for dv in daily_spread_vars:
+            if dv["var"].X > 0.5:
+                # Find which specific courses from this group are on this specific day
+                day_courses = [s["code"] for s in schedule 
+                               if s["dept"] == dv["dept"] and s["year"] == dv["year"] and s["day"] == day_labels[dv["d"]]]
+                
+                # can be 1 (double exam), 2 (triple exam) etc.
+                val = round(dv["var"].X)
+                total_penalty += dv["weight"] * val
+                
+                course_str = " ve ".join(day_courses) if day_courses else dv["dept"]
+                refined_desc = f"{course_str} dersleri aynı güne ({day_labels[dv['d']]}) planlandı."
+                
+                penalties.append({
+                    "desc": refined_desc,
+                    "penalty": round(dv["weight"] * val, 1),
+                    "day": day_labels[dv["d"]],
+                    "type": "YAYILIM"
+                })
 
         status_map = {
             GRB.OPTIMAL: "optimal",
@@ -348,8 +425,8 @@ class OptimizerService:
                 "total_conflicts": len(conflicts),
                 "hard_conflict_pairs": len(hard_pairs),
                 "total_slots": n_slots,
-                "total_rooms": len(ROOMS),
-                "total_room_capacity_per_slot": sum(ROOMS.values()),
+                "total_rooms": len(rooms),
+                "total_room_capacity_per_slot": sum(rooms.values()),
                 "max_enrolled_unit": max((info[c]["enrolled_count"], info[c]["code"], info[c]["student_dept"]) for c in C) if C else None,
             },
             "iis_constraints": [],

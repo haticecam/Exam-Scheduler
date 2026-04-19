@@ -14,6 +14,7 @@ from ..models import (
 @dataclass
 class CourseRow:
     course_name: str
+    course_code: Optional[str]
     capacity: Optional[int]
     program: str
     instructor: str
@@ -37,6 +38,7 @@ class CourseRow:
 
         return CourseRow(
             course_name=str(d.get("Course Name", "")).strip(),
+            course_code=str(d.get("Code") or d.get("Course Code") or "").strip() or None,
             capacity=capacity,
             program=str(d.get("Program", "")).strip(),
             instructor=str(d.get("Instructor", "")).strip(),
@@ -119,7 +121,7 @@ class CourseLoaderService:
         course_map = {}
         for r in rows:
             unit_id = unit_map[r.program].id
-            code = make_course_code(r.course_name)
+            code = r.course_code or make_course_code(r.course_name)
             key = (unit_id, code)
             if key not in course_map:
                 req = "COMPULSORY" if r.is_compulsory else "ELECTIVE"
@@ -135,7 +137,7 @@ class CourseLoaderService:
         sections_created = 0
         for r in rows:
             unit_id = unit_map[r.program].id
-            code = make_course_code(r.course_name)
+            code = r.course_code or make_course_code(r.course_name)
             course = course_map[(unit_id, code)]
             instr = instr_map[(unit_id, r.instructor)]
 
@@ -153,6 +155,7 @@ class CourseLoaderService:
                 defaults={"max_enrollment": max_enroll, "version": 1}
             )
             sections_created += 1
+
 
         return {
             "success": True,

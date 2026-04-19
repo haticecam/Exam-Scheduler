@@ -1,11 +1,17 @@
 from rest_framework import serializers
-from .models import Organization, CourseCatalog, AcademicUnit, Term, Student
+from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
         fields = ['id', 'name', 'domain', 'subscription_plan', 'config', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+class ResourceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Resource
+        fields = '__all__'
+        read_only_fields = ['id']
 
 class CourseCatalogSerializer(serializers.ModelSerializer):
     class Meta:
