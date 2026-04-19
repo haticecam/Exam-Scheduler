@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import serializers
 
@@ -25,6 +26,8 @@ class SystemStatusView(APIView):
     A simple endpoint to verify that Django is running and to trigger
     a dummy Gurobi background task via Celery.
     """
+    permission_classes = [AllowAny]
+
     def get(self, request):
         return Response({
             "status": "online",
