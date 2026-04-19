@@ -30,12 +30,17 @@ export default function SignupPage() {
       setSuccess(true);
       setTimeout(() => router.replace('/'), 1500);
     } catch (err: unknown) {
-      const apiErr = err as { data?: Record<string, string | string[]> };
+      const apiErr = err as { status?: number; data?: Record<string, string | string[]> };
       const flat: Record<string, string> = {};
       if (apiErr?.data) {
         for (const [k, v] of Object.entries(apiErr.data)) {
           flat[k] = Array.isArray(v) ? v[0] : v;
         }
+      }
+      if (Object.keys(flat).length === 0) {
+        flat.general = apiErr?.status
+          ? `Server error (${apiErr.status}). Please try again.`
+          : 'Could not reach the server. Is the backend running?';
       }
       setErrors(flat);
     } finally {
@@ -86,7 +91,7 @@ export default function SignupPage() {
         </div>
       )}
 
-      {errors.non_field_errors && (
+      {(errors.non_field_errors || errors.general) && (
         <div style={{
           background: COLORS.redSoft,
           border: `1px solid ${COLORS.red}`,
@@ -96,7 +101,7 @@ export default function SignupPage() {
           marginBottom: 16,
           fontSize: 14,
         }}>
-          {errors.non_field_errors}
+          {errors.non_field_errors ?? errors.general}
         </div>
       )}
 

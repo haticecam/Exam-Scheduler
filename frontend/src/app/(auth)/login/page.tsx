@@ -22,8 +22,12 @@ export default function LoginPage() {
       await login(username, password);
       router.replace('/');
     } catch (err: unknown) {
-      const apiErr = err as { data?: { non_field_errors?: string[] } };
-      setError(apiErr?.data?.non_field_errors?.[0] ?? 'Invalid username or password.');
+      const apiErr = err as { status?: number; data?: { non_field_errors?: string[] } };
+      if (!apiErr?.status) {
+        setError('Could not reach the server. Is the backend running?');
+      } else {
+        setError(apiErr?.data?.non_field_errors?.[0] ?? 'Invalid username or password.');
+      }
     } finally {
       setLoading(false);
     }
