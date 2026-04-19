@@ -302,7 +302,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 
                 params = []
                 if department_id:
-                    query += " AND (aca.academic_unit_id = %s AND acb.academic_unit_id = %s)"
+                    query += " AND (aca.academic_unit_id::text = %s OR acb.academic_unit_id::text = %s)"
                     params.extend([department_id, department_id])
                 
                 query += """
