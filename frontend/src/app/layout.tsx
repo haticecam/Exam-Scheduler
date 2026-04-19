@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import Sidebar from "@/components/layout/Sidebar";
+import { AuthProvider } from "@/context/AuthContext";
+import AppShell from "@/components/layout/AppShell";
 
 export const metadata: Metadata = {
   title: "Exam Scheduler",
@@ -14,13 +15,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="tr">
-      <body style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-        <Sidebar />
-        <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "32px 36px", flex: 1 }}>
+      <body style={{ margin: 0 }}>
+        <AuthProvider>
+          <AppShell>
             {children}
-          </div>
-        </main>
+          </AppShell>
+        </AuthProvider>
       </body>
     </html>
   );
