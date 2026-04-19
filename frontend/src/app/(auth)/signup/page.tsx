@@ -12,6 +12,7 @@ export default function SignupPage() {
   const [form, setForm] = useState({ username: '', email: '', password: '', password2: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
@@ -26,7 +27,8 @@ export default function SignupPage() {
     setLoading(true);
     try {
       await signup(form.username, form.email, form.password, form.password2);
-      router.replace('/');
+      setSuccess(true);
+      setTimeout(() => router.replace('/'), 1500);
     } catch (err: unknown) {
       const apiErr = err as { data?: Record<string, string | string[]> };
       const flat: Record<string, string> = {};
@@ -69,6 +71,20 @@ export default function SignupPage() {
       <p style={{ color: COLORS.textMuted, marginBottom: 28, fontSize: 14, marginTop: 0 }}>
         Join Exam Scheduler
       </p>
+
+      {success && (
+        <div style={{
+          background: COLORS.greenSoft,
+          border: `1px solid ${COLORS.green}`,
+          color: COLORS.green,
+          borderRadius: 6,
+          padding: '10px 14px',
+          marginBottom: 16,
+          fontSize: 14,
+        }}>
+          Account created successfully! Redirecting…
+        </div>
+      )}
 
       {errors.non_field_errors && (
         <div style={{
