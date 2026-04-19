@@ -10,9 +10,9 @@ def org(db):
 
 @pytest.mark.django_db
 def test_seed_rooms_creates_24_resources(org):
-    """seed_rooms must create exactly 24 EXAM_ROOM Resource records for the org."""
+    """seed_rooms must create exactly 24 CLASSROOM Resource records for the org."""
     call_command('seed_rooms', org_id=str(org.id))
-    count = Resource.objects.filter(organization=org, type='EXAM_ROOM', is_active=True).count()
+    count = Resource.objects.filter(organization=org, type='CLASSROOM', is_active=True).count()
     assert count == 24
 
 
@@ -21,16 +21,16 @@ def test_seed_rooms_is_idempotent(org):
     """Running seed_rooms twice must not create duplicate rooms."""
     call_command('seed_rooms', org_id=str(org.id))
     call_command('seed_rooms', org_id=str(org.id))
-    count = Resource.objects.filter(organization=org, type='EXAM_ROOM').count()
+    count = Resource.objects.filter(organization=org, type='CLASSROOM').count()
     assert count == 24
 
 
 @pytest.mark.django_db
 def test_seed_rooms_correct_capacity(org):
-    """CZ08-09 room capacity must be 44 (132 // 3)."""
+    """CZ08-09 room capacity must be 132 (real capacity, not divided)."""
     call_command('seed_rooms', org_id=str(org.id))
-    room = Resource.objects.get(organization=org, name='CZ08-09', type='EXAM_ROOM')
-    assert room.capacity == 44  # 132 // 3
+    room = Resource.objects.get(organization=org, name='CZ08-09', type='CLASSROOM')
+    assert room.capacity == 132
 
 
 @pytest.mark.django_db
@@ -57,7 +57,7 @@ def test_optimizer_loads_rooms_from_db(org):
 
     assert len(rooms) == 24
     assert 'CZ08-09' in rooms
-    assert rooms['CZ08-09'] == 44  # 132 // 3
+    assert rooms['CZ08-09'] == 44  # 132 // 3 (shift capacity)
 
 
 @pytest.mark.django_db
@@ -66,5 +66,5 @@ def test_optimizer_raises_when_no_rooms(org):
     term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
 
     svc = OptimizerService(term_id=str(term.id))
-    with pytest.raises(ValueError, match="No active EXAM_ROOM resources"):
+    with pytest.raises(ValueError, match="No active CLASSROOM resources"):
         svc.load_rooms()

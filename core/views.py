@@ -147,7 +147,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
 
-    @extend_schema(responses={200: {}})
+    @extend_schema(request=None, responses={200: {}})
     @action(detail=True, methods=['post'], url_path='seed-rooms')
     def seed_rooms(self, request, pk=None):
         from .management.commands.seed_rooms import EXAM_ROOMS
@@ -159,7 +159,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             _, was_created = Resource.objects.get_or_create(
                 organization=org,
                 name=name,
-                type='EXAM_ROOM',
+                type='CLASSROOM',
                 defaults={'capacity': capacity, 'is_active': True}
             )
             if was_created:
