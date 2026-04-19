@@ -42,12 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signup = async (username: string, email: string, password: string, password2: string) => {
-    const data = await api.post<{ token: string; username: string }>('/api/auth/register/', {
-      username, email, password, password2,
-    });
-    setToken(data.token);
-    localStorage.setItem(USERNAME_KEY, data.username);
-    setUser({ token: data.token, username: data.username });
+    await api.post('/api/auth/register/', { username, email, password, password2 });
   };
 
   const logout = () => {

@@ -28,7 +28,7 @@ export default function SignupPage() {
     try {
       await signup(form.username, form.email, form.password, form.password2);
       setSuccess(true);
-      setTimeout(() => router.replace('/'), 1500);
+      setTimeout(() => router.replace('/login'), 1500);
     } catch (err: unknown) {
       const apiErr = err as { status?: number; data?: Record<string, string | string[]> };
       const flat: Record<string, string> = {};
@@ -87,7 +87,7 @@ export default function SignupPage() {
           marginBottom: 16,
           fontSize: 14,
         }}>
-          Account created successfully! Redirecting…
+          Account created successfully! Taking you to sign in…
         </div>
       )}
 
