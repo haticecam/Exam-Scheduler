@@ -235,7 +235,7 @@ class CoursePrerequisite(models.Model):
         db_table = 'course_prerequisite'
         constraints = [
             models.UniqueConstraint(fields=['course', 'prerequisite'], name='uq_course_prereq'),
-            models.CheckConstraint(check=~models.Q(course=models.F('prerequisite')), name='chk_no_self_prereq')
+            models.CheckConstraint(condition=~models.Q(course=models.F('prerequisite')), name='chk_no_self_prereq')
         ]
 
 class CourseSection(models.Model):

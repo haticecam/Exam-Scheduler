@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.permissions import AllowAny
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import serializers
 
@@ -14,7 +15,7 @@ from .serializers import OrganizationSerializer, CourseCatalogSerializer, Academ
 from .tasks import dummy_gurobi_task
 from .services.simulator import StudentSimulatorService
 from .services.course_loader import CourseLoaderService
-from .services.enrollment_loader import EnrollmentLoaderService
+from .services.enrollment_loader import EnrollmentLoaderService, XlsxEnrollmentLoaderService
 from .services.demo_updater import DemoUpdaterService
 from .services.optimizer import OptimizerService
 import datetime
@@ -58,6 +59,8 @@ class SystemStatusView(APIView):
     A simple endpoint to verify that Django is running and to trigger
     a dummy Gurobi background task via Celery.
     """
+    permission_classes = [AllowAny]
+
     def get(self, request):
         return Response({
             "status": "online",
@@ -159,6 +162,41 @@ class CourseCatalogViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
+    @action(detail=False, methods=['delete'], url_path='deleteAll')
+    def delete_all(self, request):
+        """
+        Resets the course-loading hierarchy for a given organization.
+        Departments, instructors, courses, sections, and groups are deleted.
+        Organization and Term records are preserved.
+        Requires ?org_id=<uuid> query parameter.
+        """
+        from .models import Enrollment, Student, CourseSection, CourseCatalog, StudentGroup, Instructor, AcademicUnit
+
+        org_id = request.query_params.get('org_id')
+        if not org_id:
+            return Response({"error": "org_id query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            org = Organization.objects.get(id=org_id)
+        except Organization.DoesNotExist:
+            return Response({"error": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        counts = {}
+        counts['Enrollments'], _ = Enrollment.objects.filter(term__organization=org).delete()
+        counts['Students'], _ = Student.objects.filter(organization=org).delete()
+        counts['CourseSections'], _ = CourseSection.objects.filter(course__organization=org).delete()
+        counts['CourseCatalogs'], _ = CourseCatalog.objects.filter(organization=org).delete()
+        counts['StudentGroups'], _ = StudentGroup.objects.filter(organization=org).delete()
+        counts['Instructors'], _ = Instructor.objects.filter(academic_unit__organization=org).delete()
+        counts['AcademicUnits'], _ = AcademicUnit.objects.filter(organization=org).delete()
+
+        total = sum(counts.values())
+        return Response(
+            {
+                "message": f"Cleared {total} records for organization '{org.name}'.",
+                "details": counts
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):
@@ -169,20 +207,31 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
 
-class ResourceViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for full CRUD operations on the Resource (Room) model.
-    """
-    serializer_class = ResourceSerializer
-
-    def get_queryset(self):
-        # Odaları seed et (tablo boşsa)
-        OptimizerService.get_dynamic_rooms()
-        
-        org = Organization.objects.first()
-        if org:
-            return Resource.objects.filter(organization=org)
-        return Resource.objects.all()
+    @extend_schema(request=None, responses={200: {}})
+    @action(detail=True, methods=['post'], url_path='seed-rooms')
+    def seed_rooms(self, request, pk=None):
+        from .management.commands.seed_rooms import EXAM_ROOMS
+        from .models import Resource
+        org = self.get_object()
+        created = 0
+        skipped = 0
+        for name, capacity in EXAM_ROOMS.items():
+            _, was_created = Resource.objects.get_or_create(
+                organization=org,
+                name=name,
+                type='CLASSROOM',
+                defaults={'capacity': capacity, 'is_active': True}
+            )
+            if was_created:
+                created += 1
+            else:
+                skipped += 1
+        return Response({
+            "organization": org.name,
+            "created": created,
+            "skipped": skipped,
+            "total": created + skipped,
+        })
 
 class AcademicUnitViewSet(viewsets.ModelViewSet):
     """
@@ -268,29 +317,32 @@ class StudentViewSet(viewsets.ModelViewSet):
             'multipart/form-data': {
                 'type': 'object',
                 'properties': {
-                    'file': {'type': 'string', 'format': 'binary', 'description': 'simulated_enrollments.csv dosyası'}
+                    'file': {'type': 'string', 'format': 'binary', 'description': 'simulated_enrollments.csv file'},
+                    'term_id': {'type': 'string', 'format': 'uuid', 'description': 'Term ID (required)'},
                 },
-                'required': ['file']
+                'required': ['file', 'term_id']
             }
         }
     )
     def create(self, request, *args, **kwargs):
-        """
-        POST isteği ile toplu öğrenci verisi almak için CSV dosyası yükleme ucu.
-        """
+        """Upload a CSV file to bulk-create student enrollments."""
         file = request.FILES.get('file')
-        
         if not file:
             return Response(
-                {"error": "Lütfen bir CSV dosyası yükleyin (file parametresi eksik)."},
+                {"error": "Please upload a CSV file (file parameter missing)."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-        org = Organization.objects.first()
-        term = Term.objects.filter(organization=org, status='Active').first()
-        if not org or not term:
-            return Response({"error": "Active Term or Organization missing."}, status=status.HTTP_400_BAD_REQUEST)
 
+        term_id = request.data.get('term_id')
+        if not term_id:
+            return Response({"error": "term_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            term = Term.objects.select_related('organization').get(id=term_id)
+        except Term.DoesNotExist:
+            return Response({"error": "Term not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        org = term.organization
         file_content = file.read().decode('utf-8')
         service = EnrollmentLoaderService()
         result = service.process_csv(file_content, str(term.id), str(org.id))
@@ -298,27 +350,63 @@ class StudentViewSet(viewsets.ModelViewSet):
         if "error" in result:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            result,
-            status=status.HTTP_201_CREATED
-        )
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['delete'], url_path='deleteAll')
     def delete_all(self, request):
+        """Delete all students (and their enrollments) for a given organization.
+        Requires ?org_id=<uuid> query parameter.
         """
-        Veritabanındaki yalnızca Aktif Döneme ait tüm öğrencileri (ve onlara bağlı enrollment'ları) siler.
-        """
-        org = Organization.objects.first()
-        term = Term.objects.filter(organization=org, status='Active').first()
-        if term:
-            count, _ = Student.objects.filter(term=term).delete()
-        else:
-            count = 0
-            
+        org_id = request.query_params.get('org_id')
+        if not org_id:
+            return Response({"error": "org_id query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            org = Organization.objects.get(id=org_id)
+        except Organization.DoesNotExist:
+            return Response({"error": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        count, _ = Student.objects.filter(organization=org).delete()
         return Response(
-            {"message": f"Aktif Döneme ait toplam {count} öğrenci başarıyla silindi."},
+            {"message": f"Deleted {count} students for organization '{org.name}'."},
             status=status.HTTP_200_OK
         )
+
+    @extend_schema(
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'term_id': {'type': 'string', 'format': 'uuid', 'description': 'Term ID (required)'},
+                    'files': {
+                        'type': 'array',
+                        'items': {'type': 'string', 'format': 'binary'},
+                        'description': 'XLSX files named after the course code (e.g. CENG113.xlsx)',
+                    },
+                },
+                'required': ['term_id', 'files']
+            }
+        }
+    )
+    @action(detail=False, methods=['post'], url_path='upload-xlsx',
+            parser_classes=[MultiPartParser, FormParser])
+    def upload_xlsx(self, request):
+        """Upload one or more XLSX files (one per course) to create student enrollments."""
+        term_id = request.data.get('term_id')
+        if not term_id:
+            return Response({"error": "term_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        files = request.FILES.getlist('files')
+        if not files:
+            return Response({"error": "At least one XLSX file is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_tuples = [(f.name, f.read()) for f in files]
+        svc = XlsxEnrollmentLoaderService()
+        result = svc.process_files(file_tuples, term_id)
+
+        if 'error' in result:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @extend_schema(parameters=[
         OpenApiParameter('min_shared', int, description="Minimum shared students to include (default 1)", required=False),
@@ -372,7 +460,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 
                 params = [term_id_str, term_id_str]
                 if department_id:
-                    query += " AND (aca.academic_unit_id = %s AND acb.academic_unit_id = %s)"
+                    query += " AND (aca.academic_unit_id::text = %s OR acb.academic_unit_id::text = %s)"
                     params.extend([department_id, department_id])
                 
                 query += """
@@ -419,28 +507,29 @@ class StudentViewSet(viewsets.ModelViewSet):
 
 class SimulateStudentsView(APIView):
     """
-    Endpoint to trigger the student enrollment simulation via Celery.
-    Accepts customized simulation parameters.
+    Demo tool: generates fake student enrollments for testing.
+    For real data, use POST /api/students/upload-xlsx/ instead.
     """
-    @extend_schema(request=SimulateStudentsRequestSerializer)
+    @extend_schema(
+        request=SimulateStudentsRequestSerializer,
+        description=(
+            "**Demo tool** — generates synthetic student enrollments for testing purposes. "
+            "For real university data, upload XLSX files via POST /api/students/upload-xlsx/ instead."
+        ),
+    )
     def post(self, request, *args, **kwargs):
-        org = Organization.objects.first()
-        if not org:
-            return Response({"error": "Sistemde hiç organizasyon bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
-            
         term_id = request.data.get('term_id')
-        if term_id:
-            term = Term.objects.filter(id=term_id, organization=org).first()
-            if not term:
-                return Response({"error": "Belirtilen term bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            term = Term.objects.filter(organization=org, status='Active').first()
-            if not term:
-                return Response({"error": "Organizasyonda 'Active' statüsünde bir Term bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
+        if not term_id:
+            return Response({"error": "term_id is required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        try:
+            term = Term.objects.select_related('organization').get(id=term_id)
+        except Term.DoesNotExist:
+            return Response({"error": "Term not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        org = term.organization
         academic_unit_id = request.data.get('academic_unit_id')
 
-        # CSV Çıktısını Senkron Olarak Üret ve Gönder
         service = StudentSimulatorService(str(org.id), str(term.id), academic_unit_id)
         try:
             csv_content = service.run()
@@ -448,20 +537,7 @@ class SimulateStudentsView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         response = HttpResponse(csv_content, content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="simulated_enrollments.csv"'
-
-        # Öğrencileri ve kayıtları aynı zamanda DB'ye kaydet
-        # (Optimizer çalışabilmesi için bu verilebilmeli)
-        try:
-            import io, logging
-            _logger = logging.getLogger(__name__)
-            loader = EnrollmentLoaderService()
-            result = loader.process_csv(csv_content, str(term.id), str(org.id))
-            _logger.info(f"SimulateStudents DB kayıt sonucu: {result}")
-        except Exception as db_err:
-            import logging
-            logging.getLogger(__name__).warning(f"SimulateStudents DB kayıt hatası: {db_err}")
-
+        response['Content-Disposition'] = 'attachment; filename="simulated_enrollments.csv"'
         return response
 
 class OptimizerViewSet(viewsets.ViewSet):
@@ -474,10 +550,27 @@ class OptimizerViewSet(viewsets.ViewSet):
     def run_optimizer(self, request):
         serializer = OptimizeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         data = serializer.validated_data
         term_id = data['term_id']
-        
+
+        MAX_CONCURRENT_RUNS = 3
+        active_count = GeneratedSolution.objects.filter(
+            term_id=term_id,
+            status__in=['PENDING', 'PROCESSING']
+        ).count()
+        if active_count >= MAX_CONCURRENT_RUNS:
+            return Response(
+                {
+                    "error": (
+                        f"{active_count} active optimization run(s) already in progress for this term. "
+                        f"Wait for them to complete before submitting a new one "
+                        f"(max {MAX_CONCURRENT_RUNS} concurrent runs allowed)."
+                    )
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         solution = GeneratedSolution.objects.create(
             term_id=term_id,
             name=data.get('name', f"Gen-{datetime.date.today()}"),

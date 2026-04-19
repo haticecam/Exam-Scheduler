@@ -34,20 +34,27 @@ class TermSerializer(serializers.ModelSerializer):
 class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
-        fields = '__all__'
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = ['id', 'organization', 'student_group', 'year_level', 'identifier']
+        read_only_fields = ['id']
 
 class OptimizeRequestSerializer(serializers.Serializer):
-    term_id = serializers.UUIDField(help_text="Zorunlu Dönem ID")
-    name = serializers.CharField(max_length=255, required=False, help_text="Bu çözüme vermek istediğiniz etiket adı (Örn: Güz 2025 Test 1)")
-    hard_threshold = serializers.IntegerField(default=5, help_text="Ortak öğrenci sayısı bundan fazlaysa Hard Conflict sayılır.")
-    time_limit = serializers.IntegerField(default=300, help_text="Gurobi saniye cinsinden bekleme süresi")
-    mip_gap = serializers.FloatField(default=0.10, help_text="MIP gap tolerance (0.10 => 10%)")
-    no_back_to_back = serializers.BooleanField(default=False, help_text="Aynı dönemdeki aynı bölüm derslerini arka arkaya vermeyi engelle (TRUE ise Hard Constraint olur)")
-    exam_days = serializers.IntegerField(default=5, help_text="Sınavların yayılacağı toplam gün sayısı (Örn: 5, 10, 14)")
-    slots_per_day = serializers.IntegerField(default=10, help_text="Her gün içindeki 1 saatlik aktif slot sayısı (Örn: 10)")
-    start_hour = serializers.IntegerField(default=8, help_text="Sınav mesaisi başlangıç saati (Örn: 8 girilirse 08:30'da başlar)")
+    term_id = serializers.UUIDField(help_text="Required Term ID")
+    name = serializers.CharField(max_length=255, required=False, help_text="Label for this solution run (e.g. 'Fall 2025 Test 1')")
+    hard_threshold = serializers.IntegerField(default=5, min_value=1, max_value=10000, help_text="Shared student count above which two courses are hard-conflicted.")
+    time_limit = serializers.IntegerField(default=300, min_value=10, max_value=86400, help_text="Gurobi time limit in seconds.")
+    mip_gap = serializers.FloatField(default=0.10, min_value=0.0, max_value=1.0, help_text="MIP gap tolerance (0.10 = 10%)")
+    no_back_to_back = serializers.BooleanField(default=False, help_text="Prevent consecutive exams for same dept/year (hard constraint).")
+    exam_days = serializers.IntegerField(default=5, min_value=1, max_value=60, help_text="Total exam days to spread across.")
+    slots_per_day = serializers.IntegerField(default=10, min_value=1, max_value=16, help_text="Number of 1-hour slots per day.")
+    start_hour = serializers.IntegerField(default=8, min_value=0, max_value=23, help_text="Exam day start hour (e.g. 8 → exams from 08:30).")
+
+    def validate(self, data):
+        if data['start_hour'] + data['slots_per_day'] > 24:
+            raise serializers.ValidationError(
+                "start_hour + slots_per_day must not exceed 24 (not enough hours in a day)."
+            )
+        return data
 
 class SimulateStudentsRequestSerializer(serializers.Serializer):
-    term_id = serializers.UUIDField(required=False, help_text="Zorunlu değil. Belirtilmezse Active olan dönem kullanılır.")
-    academic_unit_id = serializers.UUIDField(required=False, help_text="Zorunlu değil. Sadece belirtilen academic unit için simülasyon yapar.")
+    term_id = serializers.UUIDField(required=True, help_text="Term ID to simulate for.")
+    academic_unit_id = serializers.UUIDField(required=False, help_text="Optional: filter to a single department.")

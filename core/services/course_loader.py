@@ -6,6 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 
+from django.db import transaction
+
 from ..models import (
     Organization, Term, AcademicUnit, Instructor,
     StudentGroup, CourseCatalog, CourseSection
@@ -81,8 +83,15 @@ class CourseLoaderService:
             term = Term.objects.get(id=term_id)
             org = term.organization
         except Term.DoesNotExist:
-            return {"error": "Belirtilen Dönem (Term) bulunamadı. Lütfen önce geçerli bir Term oluşturun."}
+            return {"error": "Term not found. Create a valid Term first."}
 
+        try:
+            with transaction.atomic():
+                return self._process_rows(rows, org, term)
+        except Exception as e:
+            return {"error": f"Processing failed and was rolled back: {str(e)}"}
+
+    def _process_rows(self, rows, org, term):
         # 1. Academic Units map
         unit_map = {}
         for r in rows:
@@ -127,7 +136,7 @@ class CourseLoaderService:
                 req = "COMPULSORY" if r.is_compulsory else "ELECTIVE"
                 course, _ = CourseCatalog.objects.get_or_create(
                     organization=org, academic_unit_id=unit_id, code=code,
-                    defaults={"name": r.course_name, "year_level": r.year_level, 
+                    defaults={"name": r.course_name, "year_level": r.year_level,
                               "weekly_hours_lecture": r.weekly_hours, "requirement": req}
                 )
                 course_map[key] = course
@@ -149,7 +158,7 @@ class CourseLoaderService:
                 section_label = chr(64 + (n - 1) // 26) + chr(64 + (n - 1) % 26 + 1)
 
             max_enroll = 999 if r.is_compulsory else (r.capacity or 80)
-            
+
             CourseSection.objects.get_or_create(
                 term=term, course=course, section_code=section_label, instructor=instr,
                 defaults={"max_enrollment": max_enroll, "version": 1}
