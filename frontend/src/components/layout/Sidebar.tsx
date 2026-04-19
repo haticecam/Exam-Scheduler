@@ -1,13 +1,21 @@
 "use client";
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { COLORS } from "@/lib/colors";
 import { MOCK } from "@/lib/mockData";
 import Badge from "@/components/ui/Badge";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    router.replace('/login');
+  };
 
   const getLinkStyle = (path: string) => ({
     display: "flex", 
@@ -73,6 +81,12 @@ export default function Sidebar() {
         >
           ↓ Dışa Aktar
         </Link>
+        <button
+          onClick={handleLogout}
+          style={{ background: "transparent", color: COLORS.textMuted, border: `1px solid ${COLORS.border}`, borderRadius: 6, padding: "8px", cursor: "pointer", fontFamily: "monospace", fontSize: 12, width: "100%" }}
+        >
+          Sign out
+        </button>
       </div>
     </aside>
   );
