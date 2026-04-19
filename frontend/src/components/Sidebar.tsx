@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { C, mono } from "@/lib/colors";
 import { useFetch } from "@/lib/api";
 import { Badge } from "@/components/ui";
+import { useAuth } from "@/lib/auth";
 
 const NAV = [
   {
@@ -43,6 +44,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { data: termData } = useFetch("/terms/?status=Active");
   const activeTerm = termData?.results?.[0] || termData?.[0];
+  const { username, logout } = useAuth();
 
   return (
     <div style={{ width: 262, background: C.surface, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", flexShrink: 0, overflowY: "auto" }}>
@@ -69,7 +71,19 @@ export default function Sidebar() {
         ))}
       </div>
 
-
+      <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.border}` }}>
+        {username && (
+          <div style={{ fontSize: 11, color: C.textMuted, ...mono, marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {username}
+          </div>
+        )}
+        <button
+          onClick={logout}
+          style={{ width: "100%", background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontSize: 12, ...mono, textAlign: "left" }}
+        >
+          Çıkış Yap
+        </button>
+      </div>
     </div>
   );
 }

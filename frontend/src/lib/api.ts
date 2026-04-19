@@ -1,47 +1,101 @@
 import { useState, useEffect, useCallback } from "react";
+import { getToken } from "./auth";
 
 const BASE = "/api";
 
+function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const token = getToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Token ${token}` } : {}),
+    ...extra,
+  };
+}
+
+function handleUnauthorized(res: Response) {
+  if (res.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_username");
+    window.location.href = "/login";
+  }
+}
+
 export const api = {
   get: async (path: string) => {
-    const res = await fetch(`${BASE}${path}`, { 
-      headers: { "Content-Type": "application/json" },
-      cache: 'no-store'
+    const res = await fetch(`${BASE}${path}`, {
+      headers: authHeaders(),
+      cache: "no-store",
     });
-    if (!res.ok) throw new Error(`GET ${path} → ${res.status}`);
+    if (!res.ok) {
+      handleUnauthorized(res);
+      throw new Error(`GET ${path} → ${res.status}`);
+    }
     return res.json();
   },
-  post: async (path: string, body: any) => {
+  post: async (path: string, body: unknown) => {
     const res = await fetch(`${BASE}${path}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(`${res.status}`), { data: e }); }
+    if (!res.ok) {
+      handleUnauthorized(res);
+      const e = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(`${res.status}`), { data: e });
+    }
     return res.json();
   },
-  patch: async (path: string, body: any) => {
+  patch: async (path: string, body: unknown) => {
     const res = await fetch(`${BASE}${path}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(`${res.status}`), { data: e }); }
+    if (!res.ok) {
+      handleUnauthorized(res);
+      const e = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(`${res.status}`), { data: e });
+    }
     return res.json();
   },
-  put: async (path: string, body: any) => {
+  put: async (path: string, body: unknown) => {
     const res = await fetch(`${BASE}${path}`, {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      method: "PUT",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(`${res.status}`), { data: e }); }
+    if (!res.ok) {
+      handleUnauthorized(res);
+      const e = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(`${res.status}`), { data: e });
+    }
     return res.json();
   },
   upload: async (path: string, fd: FormData) => {
-    const res = await fetch(`${BASE}${path}`, { method: "POST", body: fd });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(`${res.status}`), { data: e }); }
+    const token = getToken();
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: token ? { Authorization: `Token ${token}` } : {},
+      body: fd,
+    });
+    if (!res.ok) {
+      handleUnauthorized(res);
+      const e = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(`${res.status}`), { data: e });
+    }
     return res.json();
   },
-  downloadPost: async (path: string, body: any, filename: string) => {
+  downloadPost: async (path: string, body: unknown, filename: string) => {
     const res = await fetch(`${BASE}${path}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify(body),
     });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(`${res.status}`), { data: e }); }
+    if (!res.ok) {
+      handleUnauthorized(res);
+      const e = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(`${res.status}`), { data: e });
+    }
     const blob = await res.blob();
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -53,14 +107,22 @@ export const api = {
     document.body.removeChild(a);
   },
   delete: async (path: string) => {
-    const res = await fetch(`${BASE}${path}`, { method: "DELETE" });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); throw Object.assign(new Error(`${res.status}`), { data: e }); }
+    const res = await fetch(`${BASE}${path}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!res.ok) {
+      handleUnauthorized(res);
+      const e = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(`${res.status}`), { data: e });
+    }
     const text = await res.text();
     return text ? JSON.parse(text) : {};
   },
 };
 
-export function useFetch(path: string, extraDeps: any[] = []) {
+export function useFetch(path: string, extraDeps: unknown[] = []) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +137,6 @@ export function useFetch(path: string, extraDeps: any[] = []) {
   }, [path]);
 
   useEffect(() => { refetch(); }, [refetch, ...extraDeps]);
-  
+
   return { data, loading, error, refetch };
 }

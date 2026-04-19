@@ -1,9 +1,8 @@
 "use client";
 import React from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { C, mono } from "@/lib/colors";
-import { NAV } from "./page"; // Just for label lookup
+import { useAuth } from "@/lib/auth";
 
 const NAV_FLAT = [
   { id: "/", label: "Genel Bakış" },
@@ -11,9 +10,6 @@ const NAV_FLAT = [
   { id: "/courses", label: "Ders Bölümleri" },
   { id: "/rooms", label: "Sınav Odaları" },
   { id: "/students", label: "Öğrenci & Kayıt" },
-  { id: "/periods", label: "Sınav Dönemleri" },
-  { id: "/exams", label: "Sınav Tanımları" },
-  { id: "/constraints", label: "Kısıtlar" },
   { id: "/optimizer", label: "Çalıştır" },
   { id: "/solutions", label: "Çözümler" },
   { id: "/schedule", label: "Takvim Görünümü" },
@@ -21,6 +17,7 @@ const NAV_FLAT = [
 
 export default function Topbar() {
   const pathname = usePathname();
+  const { username, logout } = useAuth();
   const currentLabel = NAV_FLAT.find(n => n.id === pathname)?.label || "Bilinmeyen Sayfa";
 
   return (
@@ -28,16 +25,19 @@ export default function Topbar() {
       <div style={{ fontSize: 12, color: C.textMuted, ...mono }}>
         Dashboard  ›  <span style={{ color: C.text }}>{currentLabel}</span>
       </div>
-      <div style={{ display: "flex", gap: 10 }}>
-        {[{ id: "/", label: "Dashboard" }].map(b => (
-          <Link
-            key={b.id}
-            href={b.id}
-            style={{ textDecoration: "none", background: C.accent, color: "#fff", border: `1px solid ${C.accent}`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", ...mono, fontSize: 12 }}
-          >
-            {b.label}
-          </Link>
-        ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        {username && (
+          <span style={{ fontSize: 12, color: C.textSub, ...mono }}>{username}</span>
+        )}
+        <button
+          onClick={logout}
+          style={{
+            background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`,
+            borderRadius: 6, padding: "6px 14px", cursor: "pointer", ...mono, fontSize: 12,
+          }}
+        >
+          Çıkış
+        </button>
       </div>
     </div>
   );

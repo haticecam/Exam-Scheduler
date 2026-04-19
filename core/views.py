@@ -31,10 +31,10 @@ class DashboardStatsView(APIView):
         from .models import CourseSection
         org = Organization.objects.first()
         term = Term.objects.filter(organization=org, status='Active').first()
-        
-        # Odaları yükle ve tablo boşsa otomatik seed et
-        rooms_dict = OptimizerService.get_dynamic_rooms()
-        room_count = len(rooms_dict)
+
+        room_count = Resource.objects.filter(
+            type='CLASSROOM', is_active=True, capacity__isnull=False
+        ).count()
 
         if term:
             course_count = CourseSection.objects.filter(term=term).values('course_id').distinct().count()
