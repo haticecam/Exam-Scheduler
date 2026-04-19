@@ -43,5 +43,5 @@ class OptimizeRequestSerializer(serializers.Serializer):
     start_hour = serializers.IntegerField(default=8, help_text="Sınav mesaisi başlangıç saati (Örn: 8 girilirse 08:30'da başlar)")
 
 class SimulateStudentsRequestSerializer(serializers.Serializer):
-    term_id = serializers.UUIDField(required=False, help_text="Zorunlu değil. Belirtilmezse Active olan dönem kullanılır.")
-    academic_unit_id = serializers.UUIDField(required=False, help_text="Zorunlu değil. Sadece belirtilen academic unit için simülasyon yapar.")
+    term_id = serializers.UUIDField(required=True, help_text="Term ID to simulate for.")
+    academic_unit_id = serializers.UUIDField(required=False, help_text="Optional: filter to a single department.")

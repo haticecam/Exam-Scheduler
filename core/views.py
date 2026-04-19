@@ -192,29 +192,32 @@ class StudentViewSet(viewsets.ModelViewSet):
             'multipart/form-data': {
                 'type': 'object',
                 'properties': {
-                    'file': {'type': 'string', 'format': 'binary', 'description': 'simulated_enrollments.csv dosyası'}
+                    'file': {'type': 'string', 'format': 'binary', 'description': 'simulated_enrollments.csv file'},
+                    'term_id': {'type': 'string', 'format': 'uuid', 'description': 'Term ID (required)'},
                 },
-                'required': ['file']
+                'required': ['file', 'term_id']
             }
         }
     )
     def create(self, request, *args, **kwargs):
-        """
-        POST isteği ile toplu öğrenci verisi almak için CSV dosyası yükleme ucu.
-        """
+        """Upload a CSV file to bulk-create student enrollments."""
         file = request.FILES.get('file')
-        
         if not file:
             return Response(
-                {"error": "Lütfen bir CSV dosyası yükleyin (file parametresi eksik)."},
+                {"error": "Please upload a CSV file (file parameter missing)."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-        org = Organization.objects.first()
-        term = Term.objects.filter(organization=org, status='Active').first()
-        if not org or not term:
-            return Response({"error": "Active Term or Organization missing."}, status=status.HTTP_400_BAD_REQUEST)
 
+        term_id = request.data.get('term_id')
+        if not term_id:
+            return Response({"error": "term_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            term = Term.objects.select_related('organization').get(id=term_id)
+        except Term.DoesNotExist:
+            return Response({"error": "Term not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        org = term.organization
         file_content = file.read().decode('utf-8')
         service = EnrollmentLoaderService()
         result = service.process_csv(file_content, str(term.id), str(org.id))
@@ -222,10 +225,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         if "error" in result:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            result,
-            status=status.HTTP_201_CREATED
-        )
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['delete'], url_path='deleteAll')
     def delete_all(self, request):
@@ -337,23 +337,18 @@ class SimulateStudentsView(APIView):
     """
     @extend_schema(request=SimulateStudentsRequestSerializer)
     def post(self, request, *args, **kwargs):
-        org = Organization.objects.first()
-        if not org:
-            return Response({"error": "Sistemde hiç organizasyon bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
-            
         term_id = request.data.get('term_id')
-        if term_id:
-            term = Term.objects.filter(id=term_id, organization=org).first()
-            if not term:
-                return Response({"error": "Belirtilen term bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            term = Term.objects.filter(organization=org, status='Active').first()
-            if not term:
-                return Response({"error": "Organizasyonda 'Active' statüsünde bir Term bulunamadı."}, status=status.HTTP_400_BAD_REQUEST)
+        if not term_id:
+            return Response({"error": "term_id is required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        try:
+            term = Term.objects.select_related('organization').get(id=term_id)
+        except Term.DoesNotExist:
+            return Response({"error": "Term not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        org = term.organization
         academic_unit_id = request.data.get('academic_unit_id')
 
-        # CSV Çıktısını Senkron Olarak Üret ve Gönder
         service = StudentSimulatorService(str(org.id), str(term.id), academic_unit_id)
         try:
             csv_content = service.run()
@@ -361,7 +356,7 @@ class SimulateStudentsView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         response = HttpResponse(csv_content, content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="simulated_enrollments.csv"'
+        response['Content-Disposition'] = 'attachment; filename="simulated_enrollments.csv"'
         return response
 
 class OptimizerViewSet(viewsets.ViewSet):
