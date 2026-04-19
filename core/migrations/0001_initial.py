@@ -469,6 +469,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='courseprerequisite',
-            constraint=models.CheckConstraint(check=models.Q(('course', models.F('prerequisite')), _negated=True), name='chk_no_self_prereq'),
+            constraint=models.CheckConstraint(condition=models.Q(('course', models.F('prerequisite')), _negated=True), name='chk_no_self_prereq'),
         ),
     ]

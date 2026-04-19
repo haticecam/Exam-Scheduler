@@ -28,8 +28,8 @@ class TermSerializer(serializers.ModelSerializer):
 class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
-        fields = '__all__'
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        fields = ['id', 'organization', 'student_group', 'year_level', 'identifier']
+        read_only_fields = ['id']
 
 class OptimizeRequestSerializer(serializers.Serializer):
     term_id = serializers.UUIDField(help_text="Zorunlu Dönem ID")
