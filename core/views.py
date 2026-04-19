@@ -389,10 +389,27 @@ class OptimizerViewSet(viewsets.ViewSet):
     def run_optimizer(self, request):
         serializer = OptimizeRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
+
         data = serializer.validated_data
         term_id = data['term_id']
-        
+
+        MAX_CONCURRENT_RUNS = 3
+        active_count = GeneratedSolution.objects.filter(
+            term_id=term_id,
+            status__in=['PENDING', 'PROCESSING']
+        ).count()
+        if active_count >= MAX_CONCURRENT_RUNS:
+            return Response(
+                {
+                    "error": (
+                        f"{active_count} active optimization run(s) already in progress for this term. "
+                        f"Wait for them to complete before submitting a new one "
+                        f"(max {MAX_CONCURRENT_RUNS} concurrent runs allowed)."
+                    )
+                },
+                status=status.HTTP_429_TOO_MANY_REQUESTS
+            )
+
         solution = GeneratedSolution.objects.create(
             term_id=term_id,
             name=data.get('name', f"Gen-{datetime.date.today()}"),
