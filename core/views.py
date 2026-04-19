@@ -15,7 +15,7 @@ from .serializers import OrganizationSerializer, CourseCatalogSerializer, Academ
 from .tasks import dummy_gurobi_task
 from .services.simulator import StudentSimulatorService
 from .services.course_loader import CourseLoaderService
-from .services.enrollment_loader import EnrollmentLoaderService
+from .services.enrollment_loader import EnrollmentLoaderService, XlsxEnrollmentLoaderService
 from .services.demo_updater import DemoUpdaterService
 import datetime
 from django.shortcuts import get_object_or_404
@@ -147,6 +147,32 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     queryset = Organization.objects.all()
     serializer_class = OrganizationSerializer
 
+    @extend_schema(responses={200: {}})
+    @action(detail=True, methods=['post'], url_path='seed-rooms')
+    def seed_rooms(self, request, pk=None):
+        from .management.commands.seed_rooms import EXAM_ROOMS
+        from .models import Resource
+        org = self.get_object()
+        created = 0
+        skipped = 0
+        for name, capacity in EXAM_ROOMS.items():
+            _, was_created = Resource.objects.get_or_create(
+                organization=org,
+                name=name,
+                type='EXAM_ROOM',
+                defaults={'capacity': capacity, 'is_active': True}
+            )
+            if was_created:
+                created += 1
+            else:
+                skipped += 1
+        return Response({
+            "organization": org.name,
+            "created": created,
+            "skipped": skipped,
+            "total": created + skipped,
+        })
+
 class AcademicUnitViewSet(viewsets.ModelViewSet):
     """
     ViewSet for full CRUD operations on the AcademicUnit model.
@@ -258,6 +284,43 @@ class StudentViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+    @extend_schema(
+        request={
+            'multipart/form-data': {
+                'type': 'object',
+                'properties': {
+                    'term_id': {'type': 'string', 'format': 'uuid', 'description': 'Term ID (required)'},
+                    'files': {
+                        'type': 'array',
+                        'items': {'type': 'string', 'format': 'binary'},
+                        'description': 'XLSX files named after the course code (e.g. CENG113.xlsx)',
+                    },
+                },
+                'required': ['term_id', 'files']
+            }
+        }
+    )
+    @action(detail=False, methods=['post'], url_path='upload-xlsx',
+            parser_classes=[MultiPartParser, FormParser])
+    def upload_xlsx(self, request):
+        """Upload one or more XLSX files (one per course) to create student enrollments."""
+        term_id = request.data.get('term_id')
+        if not term_id:
+            return Response({"error": "term_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        files = request.FILES.getlist('files')
+        if not files:
+            return Response({"error": "At least one XLSX file is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        file_tuples = [(f.name, f.read()) for f in files]
+        svc = XlsxEnrollmentLoaderService()
+        result = svc.process_files(file_tuples, term_id)
+
+        if 'error' in result:
+            return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(result, status=status.HTTP_201_CREATED)
+
     @extend_schema(parameters=[
         OpenApiParameter('min_shared', int, description="Minimum shared students to include (default 1)", required=False),
         OpenApiParameter('page', int, description="Page number (default 1)", required=False),
@@ -352,10 +415,16 @@ class StudentViewSet(viewsets.ModelViewSet):
 
 class SimulateStudentsView(APIView):
     """
-    Endpoint to trigger the student enrollment simulation via Celery.
-    Accepts customized simulation parameters.
+    Demo tool: generates fake student enrollments for testing.
+    For real data, use POST /api/students/upload-xlsx/ instead.
     """
-    @extend_schema(request=SimulateStudentsRequestSerializer)
+    @extend_schema(
+        request=SimulateStudentsRequestSerializer,
+        description=(
+            "**Demo tool** — generates synthetic student enrollments for testing purposes. "
+            "For real university data, upload XLSX files via POST /api/students/upload-xlsx/ instead."
+        ),
+    )
     def post(self, request, *args, **kwargs):
         term_id = request.data.get('term_id')
         if not term_id:
