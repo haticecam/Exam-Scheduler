@@ -40,3 +40,31 @@ def test_seed_rooms_missing_org_raises(db):
     from django.core.management.base import CommandError
     with pytest.raises((CommandError, Organization.DoesNotExist)):
         call_command('seed_rooms', org_id=str(uuid.uuid4()))
+
+
+from core.services.optimizer import OptimizerService
+from core.models import Term
+
+
+@pytest.mark.django_db
+def test_optimizer_loads_rooms_from_db(org):
+    """OptimizerService.load_rooms() must return rooms seeded into the Resource table."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+
+    assert len(rooms) == 24
+    assert 'CZ08-09' in rooms
+    assert rooms['CZ08-09'] == 44  # 132 // 3
+
+
+@pytest.mark.django_db
+def test_optimizer_raises_when_no_rooms(org):
+    """OptimizerService.load_rooms() must raise ValueError if no rooms in DB."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+
+    svc = OptimizerService(term_id=str(term.id))
+    with pytest.raises(ValueError, match="No active EXAM_ROOM resources"):
+        svc.load_rooms()

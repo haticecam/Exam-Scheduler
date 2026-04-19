@@ -5,22 +5,6 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# TODO: Move ROOMS to the Resource model in the database.
-# Currently rooms are hardcoded here — adding/removing a room requires a code deploy.
-# The Resource model (core/models.py:Resource) exists for this purpose.
-# Migration path: load rooms via Resource.objects.filter(type='CLASSROOM', is_active=True)
-# and build this dict from .name → .capacity at optimizer startup.
-ROOMS: dict[str, int] = {
-    "CZ08-09":   132 // 3, "C111-112":  135 // 3, "A222-224":  77 // 3,
-    "A218-219":  80 // 3,  "A203-204":  72 // 3,  "A207-208":  72 // 3,
-    "A319-320":  72 // 3,  "A315-316":  80 // 3,  "A303-304":  68 // 3,
-    "B310":      35 // 3,  "A307-308":  108 // 3, "C406":      48 // 3,
-    "B413-414":  108 // 3, "C403-404":  84 // 3,  "A422-423":  96 // 3,
-    "A414-415":  100 // 3, "C510":      56 // 3,  "C507":      48 // 3,
-    "C506":      48 // 3,  "C501":      56 // 3,  "C502":      56 // 3,
-    "C503-504":  84 // 3,  "B515-516":  125 // 3, "DB412":     156 // 3,
-}
-
 BASE_W_MM = 50.0
 BASE_W_ME = 30.0
 BASE_W_EE = 15.0
@@ -29,17 +13,40 @@ YEAR_DIFF_FACTOR = {0: 20.0, 1: 10.0, 2: 3.0, 3: 1.0}
 
 class OptimizerService:
     """
-    Planlama birimi: (ders × öğrencinin bölümü).
-    Örn: PHYSICS I dersi Bilgisayar Müh. için ayrı, Yazılım Müh. için ayrı planlanır.
-    Çakışmalar da aynı bölüm öğrencilerinin ortak aldığı dersler üzerinden hesaplanır.
+    Scheduling unit: (course × student's department).
+    e.g. PHYSICS I for CS students is planned independently from PHYSICS I for SE students.
+    Conflicts are computed over courses shared by students in the same department.
     """
 
     def __init__(self, term_id: str):
         self.term_id = str(term_id)
-        logger.warning(
-            "OptimizerService using hardcoded ROOMS dict. "
-            "Rooms should be loaded from the Resource model. See TODO in optimizer.py."
-        )
+
+    def load_rooms(self) -> dict[str, int]:
+        """
+        Load active exam rooms for this term's organization from the Resource table.
+        Returns dict: room_name → capacity.
+        Raises ValueError if no rooms are configured.
+        """
+        from core.models import Term, Resource
+        try:
+            term = Term.objects.select_related('organization').get(id=self.term_id)
+        except Term.DoesNotExist:
+            raise ValueError(f"Term {self.term_id} not found.")
+
+        resources = Resource.objects.filter(
+            organization=term.organization,
+            type='EXAM_ROOM',
+            is_active=True,
+            capacity__isnull=False
+        ).values('name', 'capacity')
+
+        rooms = {r['name']: r['capacity'] for r in resources}
+        if not rooms:
+            raise ValueError(
+                f"No active EXAM_ROOM resources found for organization '{term.organization.name}'. "
+                f"Run: python manage.py seed_rooms --org_id {term.organization.id}"
+            )
+        return rooms
 
     def _dictfetchall(self, cursor):
         desc = cursor.description
@@ -47,8 +54,8 @@ class OptimizerService:
 
     def load_courses(self) -> list[dict]:
         """
-        Her (ders, öğrenci_bölümü) çifti için bir satır döner.
-        enrolled_count = o bölümden o derse kayıtlı öğrenci sayısı.
+        Returns one row per (course, student_dept) pair.
+        enrolled_count = number of students from that dept enrolled in this course.
         """
         with connection.cursor() as cur:
             cur.execute("""
@@ -80,15 +87,14 @@ class OptimizerService:
                 ORDER BY au_student.name, cc.year_level, cc.name
             """)
             rows = self._dictfetchall(cur)
-            # Her satıra benzersiz birim anahtarı ekle
             for r in rows:
                 r["unit_key"] = f"{r['course_id']}|{r['student_dept_id']}"
             return rows
 
     def load_conflict_matrix(self) -> dict:
         """
-        Aynı bölüm öğrencilerinin ortak aldığı ders çiftlerini bulur.
-        Anahtar: (unit_key_a, unit_key_b)  —  unit_key = course_id|dept_id
+        Find course pairs shared by students in the same department.
+        Key: (unit_key_a, unit_key_b) where unit_key = course_id|dept_id
         """
         with connection.cursor() as cur:
             cur.execute("""
@@ -112,7 +118,6 @@ class OptimizerService:
                 key_a = f"{r['ca']}|{r['dept_id']}"
                 key_b = f"{r['cb']}|{r['dept_id']}"
                 pair = (min(key_a, key_b), max(key_a, key_b))
-                # Aynı çift birden fazla satırda gelebilir, en büyüğünü al
                 conflict_dict[pair] = max(conflict_dict.get(pair, 0), int(r["shared"]))
             return conflict_dict
 
@@ -123,7 +128,9 @@ class OptimizerService:
             import gurobipy as gp
             from gurobipy import GRB, quicksum
         except ImportError:
-            raise Exception("Gurobipy module not found. Please install gurobipy and configure licenses.")
+            raise Exception("gurobipy not found. Install gurobipy and configure a license.")
+
+        ROOMS = self.load_rooms()
 
         courses = self.load_courses()
         conflicts = self.load_conflict_matrix()
@@ -134,13 +141,11 @@ class OptimizerService:
         default_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         day_labels = [default_days[i % 7] if exam_days <= 7 else f"Day {i+1}" for i in range(exam_days)]
 
-        # info dict: unit_key -> row data
         info = {r["unit_key"]: r for r in courses}
         C = list(info.keys())
 
-        logger.info(f"Optimizer: {len(C)} scheduling units (course×dept), {len(conflicts)} conflict pairs")
+        logger.info(f"Optimizer: {len(C)} scheduling units, {len(conflicts)} conflict pairs, {len(ROOMS)} rooms")
 
-        # Determine Durations (1-hour blocks)
         for c in C:
             hours = info[c].get("weekly_hours") or 0
             dur = 3 if hours >= 4 else (1 if 0 < hours <= 2 else 2)
@@ -150,17 +155,14 @@ class OptimizerService:
             dur = info[c]["duration"]
             return [s for s in range(n_slots) if (s % slots_per_day) + dur <= slots_per_day]
 
-        # Group by (student_dept, year_level) for no-back-to-back
         groups = defaultdict(list)
         for c in C:
             groups[(info[c]["student_dept"], info[c]["year_level"])].append(c)
 
-        # Short label for constraint naming (avoid 100-char UUID names)
         short = {}
         for i, c in enumerate(C):
             short[c] = f"{info[c]['code']}_{info[c]['student_dept'][:6]}_{i}"
 
-        # --- Gurobi Environment ---
         env = gp.Env(empty=True)
         wls_access = os.getenv("GRB_WLSACCESSID")
         wls_secret = os.getenv("GRB_WLSSECRET")
@@ -175,7 +177,6 @@ class OptimizerService:
         env.start()
         m = gp.Model("exam_scheduling", env=env)
 
-        # Variables
         y = {}
         for c in C:
             for s in valid_starts(c):
@@ -189,14 +190,10 @@ class OptimizerService:
 
         m.update()
 
-        # === Hard Constraints ===
-
-        # 1. Every unit must be assigned exactly one start slot
         for c in C:
             m.addConstr(quicksum(y[(c, s)] for s in valid_starts(c)) == 1,
                         name=f"one_start[{short[c]}]")
 
-        # 2. Room capacity must cover enrolled students
         for c in C:
             enrolled = info[c]["enrolled_count"]
             for s in valid_starts(c):
@@ -207,7 +204,6 @@ class OptimizerService:
                     m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
                                 name=f"link[{short[c]},{r},{s}]")
 
-        # 3. One exam per room per time unit
         def v_expr(c, t):
             dur = info[c]["duration"]
             return quicksum(y[(c, s)] for s in valid_starts(c) if s <= t < s + dur)
@@ -221,7 +217,6 @@ class OptimizerService:
 
         minimize_rooms_used = quicksum(x_start.values()) * 0.01
 
-        # 4. Hard conflict: courses sharing > threshold students can't overlap
         hard_pairs = set()
         for (ua, ub), shared in conflicts.items():
             if ua not in info or ub not in info:
@@ -234,7 +229,6 @@ class OptimizerService:
                 m.addConstr(v_expr(ua, t) + v_expr(ub, t) <= 1,
                             name=f"hard[{short[ua]}_{short[ub]}_{t}]")
 
-        # 5. No back-to-back (optional)
         if no_back_to_back:
             for (dept, year), group_courses in groups.items():
                 for t in range(1, n_slots):
@@ -248,7 +242,6 @@ class OptimizerService:
                         m.addConstr(quicksum(ending) + quicksum(starting) <= 1,
                                     name=f"no_btb[{dept[:8]},{year},{t}]")
 
-        # === Soft Constraints ===
         conflict_vars = []
         for (ua, ub), shared in conflicts.items():
             if shared > hard_threshold or ua not in info or ub not in info:
@@ -266,7 +259,6 @@ class OptimizerService:
                 m.addConstr(z >= v_expr(ua, t) + v_expr(ub, t) - 1)
                 conflict_vars.append((z, w, ua, ub, t, shared))
 
-        # === Objective ===
         m.setObjective(
             quicksum(w * z for (z, w, *_) in conflict_vars) + minimize_rooms_used,
             GRB.MINIMIZE)
@@ -277,9 +269,8 @@ class OptimizerService:
 
         m.optimize()
 
-        # === Build Output ===
         if m.SolCount == 0:
-            return self._build_infeasible_result(m, C, info, conflicts, hard_pairs, n_slots, short)
+            return self._build_infeasible_result(m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS)
 
         schedule = []
         for c in info:
@@ -348,10 +339,9 @@ class OptimizerService:
             "status": status_map.get(m.Status, f"status_{m.Status}"),
         }
 
-    # --------------- IIS Diagnostics ---------------
-    def _build_infeasible_result(self, m, C, info, conflicts, hard_pairs, n_slots, short):
+    def _build_infeasible_result(self, m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS):
         diagnostics = {
-            "summary": "Model çözümsüz (infeasible). Aşağıda çelişen kısıtların analizi verilmiştir.",
+            "summary": "Model infeasible. Conflicting constraint analysis below.",
             "model_stats": {
                 "total_scheduling_units": len(C),
                 "total_conflicts": len(conflicts),
@@ -395,28 +385,28 @@ class OptimizerService:
 
             if iis_groups["hard"]:
                 diagnostics["recommendations"].append(
-                    f"{len(iis_groups['hard'])} adet Hard Conflict kısıtı çelişiyor. "
-                    f"'hard_threshold' değerini artırmayı (örn: 10 veya 20) deneyin.")
+                    f"{len(iis_groups['hard'])} hard conflict constraints conflict. "
+                    f"Try increasing 'hard_threshold' (e.g. 10 or 20).")
             if iis_groups["room_busy"]:
                 diagnostics["recommendations"].append(
-                    f"{len(iis_groups['room_busy'])} adet oda meşguliyet kısıtı çelişiyor. "
-                    f"'exam_days' sayısını artırmayı (örn: 7 veya 10) veya 'slots_per_day' yükseltmeyi deneyin.")
+                    f"{len(iis_groups['room_busy'])} room-busy constraints conflict. "
+                    f"Try increasing 'exam_days' or 'slots_per_day'.")
             if iis_groups["cap"]:
                 diagnostics["recommendations"].append(
-                    f"{len(iis_groups['cap'])} adet kapasite kısıtı çelişiyor. "
-                    f"Oda kapasiteleri toplam kayıtlı öğrenci sayısı için yetersiz olabilir.")
+                    f"{len(iis_groups['cap'])} capacity constraints conflict. "
+                    f"Room capacities may be insufficient for total enrollment.")
             if iis_groups["no_btb"]:
                 diagnostics["recommendations"].append(
-                    f"{len(iis_groups['no_btb'])} adet arka-arkaya-sınav-yok kısıtı çelişiyor. "
-                    f"'no_back_to_back' seçeneğini kapatmayı veya gün sayısını artırmayı deneyin.")
+                    f"{len(iis_groups['no_btb'])} no-back-to-back constraints conflict. "
+                    f"Disable 'no_back_to_back' or increase exam days.")
             if not diagnostics["recommendations"]:
                 diagnostics["recommendations"].append(
-                    "IIS analizi tamamlandı ancak spesifik bir öneri üretilemedi. Parametre kombinasyonunu gevşetmeyi deneyin.")
+                    "IIS complete but no specific recommendation. Relax parameter combination.")
 
         except Exception as iis_err:
-            diagnostics["iis_error"] = f"IIS hesaplanamadı: {str(iis_err)}"
+            diagnostics["iis_error"] = f"IIS failed: {str(iis_err)}"
             diagnostics["recommendations"].append(
-                "IIS analizi başarısız. hard_threshold artırın, exam_days yükseltin veya no_back_to_back kapatın.")
+                "IIS failed. Increase hard_threshold, exam_days, or disable no_back_to_back.")
 
         return {
             "schedule": [], "penalties": [],
