@@ -5,6 +5,11 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# TODO: Move ROOMS to the Resource model in the database.
+# Currently rooms are hardcoded here — adding/removing a room requires a code deploy.
+# The Resource model (core/models.py:Resource) exists for this purpose.
+# Migration path: load rooms via Resource.objects.filter(type='CLASSROOM', is_active=True)
+# and build this dict from .name → .capacity at optimizer startup.
 ROOMS: dict[str, int] = {
     "CZ08-09":   132 // 3, "C111-112":  135 // 3, "A222-224":  77 // 3,
     "A218-219":  80 // 3,  "A203-204":  72 // 3,  "A207-208":  72 // 3,
@@ -31,6 +36,10 @@ class OptimizerService:
 
     def __init__(self, term_id: str):
         self.term_id = str(term_id)
+        logger.warning(
+            "OptimizerService using hardcoded ROOMS dict. "
+            "Rooms should be loaded from the Resource model. See TODO in optimizer.py."
+        )
 
     def _dictfetchall(self, cursor):
         desc = cursor.description
