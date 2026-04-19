@@ -102,25 +102,34 @@ class CourseCatalogViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['delete'], url_path='deleteAll')
     def delete_all(self, request):
         """
-        CSV yüklemesiyle oluşan tüm hiyerarşiyi (Bölümler, Eğitmenler, Dersler, Şubeler ve Gruplar) 
-        kökten silerek sistemi o adımı hiç yapmamışsınız gibi temizler.
-        Oluşturduğunuz Organization ve Term(Dönem) silinmez, korunur.
+        Resets the course-loading hierarchy for a given organization.
+        Departments, instructors, courses, sections, and groups are deleted.
+        Organization and Term records are preserved.
+        Requires ?org_id=<uuid> query parameter.
         """
         from .models import Enrollment, Student, CourseSection, CourseCatalog, StudentGroup, Instructor, AcademicUnit
-        
+
+        org_id = request.query_params.get('org_id')
+        if not org_id:
+            return Response({"error": "org_id query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            org = Organization.objects.get(id=org_id)
+        except Organization.DoesNotExist:
+            return Response({"error": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+
         counts = {}
-        counts['Enrollments'], _ = Enrollment.objects.all().delete()
-        counts['Students'], _ = Student.objects.all().delete()
-        counts['CourseSections'], _ = CourseSection.objects.all().delete()
-        counts['CourseCatalogs'], _ = CourseCatalog.objects.all().delete()
-        counts['StudentGroups'], _ = StudentGroup.objects.all().delete()
-        counts['Instructors'], _ = Instructor.objects.all().delete()
-        counts['AcademicUnits'], _ = AcademicUnit.objects.all().delete()
-        
+        counts['Enrollments'], _ = Enrollment.objects.filter(term__organization=org).delete()
+        counts['Students'], _ = Student.objects.filter(organization=org).delete()
+        counts['CourseSections'], _ = CourseSection.objects.filter(course__organization=org).delete()
+        counts['CourseCatalogs'], _ = CourseCatalog.objects.filter(organization=org).delete()
+        counts['StudentGroups'], _ = StudentGroup.objects.filter(organization=org).delete()
+        counts['Instructors'], _ = Instructor.objects.filter(academic_unit__organization=org).delete()
+        counts['AcademicUnits'], _ = AcademicUnit.objects.filter(organization=org).delete()
+
         total = sum(counts.values())
         return Response(
             {
-                "message": f"Ders yükleme işlemleri geri alındı. Toplam {total} ilişkili kayıt temizlendi.",
+                "message": f"Cleared {total} records for organization '{org.name}'.",
                 "details": counts
             },
             status=status.HTTP_200_OK
@@ -229,12 +238,20 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['delete'], url_path='deleteAll')
     def delete_all(self, request):
+        """Delete all students (and their enrollments) for a given organization.
+        Requires ?org_id=<uuid> query parameter.
         """
-        Veritabanındaki tüm öğrencileri (ve onlara bağlı enrollment'ları) siler.
-        """
-        count, _ = Student.objects.all().delete()
+        org_id = request.query_params.get('org_id')
+        if not org_id:
+            return Response({"error": "org_id query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            org = Organization.objects.get(id=org_id)
+        except Organization.DoesNotExist:
+            return Response({"error": "Organization not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        count, _ = Student.objects.filter(organization=org).delete()
         return Response(
-            {"message": f"Toplam {count} öğrenci başarıyla silindi."},
+            {"message": f"Deleted {count} students for organization '{org.name}'."},
             status=status.HTTP_200_OK
         )
 
