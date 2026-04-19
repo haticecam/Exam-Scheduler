@@ -71,3 +71,41 @@ def test_swagger_is_public(client):
     """GET /api/docs/ must be accessible without a token."""
     response = client.get('/api/docs/')
     assert response.status_code == 200
+
+
+# --- Registration ---
+
+@pytest.mark.django_db
+def test_register_creates_user_and_returns_token(client):
+    response = client.post('/api/auth/register/', data={
+        'username': 'newuser',
+        'email': 'new@example.com',
+        'password': 'StrongPass123!',
+        'password2': 'StrongPass123!',
+    }, content_type='application/json')
+    assert response.status_code == 201
+    assert 'token' in response.json()
+    assert User.objects.filter(username='newuser').exists()
+
+
+@pytest.mark.django_db
+def test_register_rejects_duplicate_username(client):
+    User.objects.create_user('existing', 'e@e.com', 'pass')
+    response = client.post('/api/auth/register/', data={
+        'username': 'existing',
+        'email': 'other@example.com',
+        'password': 'StrongPass123!',
+        'password2': 'StrongPass123!',
+    }, content_type='application/json')
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_register_rejects_password_mismatch(client):
+    response = client.post('/api/auth/register/', data={
+        'username': 'user2',
+        'email': 'u2@example.com',
+        'password': 'StrongPass123!',
+        'password2': 'Different!',
+    }, content_type='application/json')
+    assert response.status_code == 400

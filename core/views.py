@@ -731,3 +731,10 @@ class OptimizerViewSet(viewsets.ViewSet):
         solution.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+
+
+class ResourceViewSet(viewsets.ModelViewSet):
+    serializer_class = ResourceSerializer
+
+    def get_queryset(self):
+        return Resource.objects.filter(organization__isnull=False)
