@@ -19,18 +19,17 @@ def parse_kon(kon: str):
 
 class DemoUpdaterService:
     def process_csv(self, file_content: str):
-        # Decode considering utf-8-sig if there's BOM
         if file_content.startswith('\ufeff'):
             file_content = file_content[1:]
-        
+
         lines = file_content.splitlines()
         if not lines:
             return {"error": "Empty file"}
-            
+
         first = lines[0].strip()
         if first.lower().startswith("table"):
             lines.pop(0)
-            
+
         reader = csv.DictReader(lines, delimiter=";")
         enrollments = defaultdict(list)
 
@@ -67,6 +66,7 @@ class DemoUpdaterService:
         updated = 0
         skipped = 0
 
+        groups_to_update = []
         for (dept, year), size in cohort_sizes.items():
             unit_id = unit_map.get(dept)
             if not unit_id:
@@ -79,12 +79,13 @@ class DemoUpdaterService:
                 skipped += 1
                 continue
 
-            # Update DB
-            groups = StudentGroup.objects.filter(academic_unit_id=unit_id, year_level=year)
-            for g in groups:
+            for g in StudentGroup.objects.filter(academic_unit_id=unit_id, year_level=year):
                 g.size_estimate = size
-                g.save()
+                groups_to_update.append(g)
                 updated += 1
+
+        if groups_to_update:
+            StudentGroup.objects.bulk_update(groups_to_update, ['size_estimate'])
 
         return {
             "success": True,
