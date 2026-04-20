@@ -9,17 +9,50 @@ from rest_framework import serializers
 
 from django.http import HttpResponse
 
-from .models import Organization, CourseCatalog, AcademicUnit, Term, Student
+from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource, GeneratedSolution, CourseSection
 from .serializers import OrganizationSerializer, CourseCatalogSerializer, AcademicUnitSerializer, TermSerializer, \
-    StudentSerializer, OptimizeRequestSerializer, SimulateStudentsRequestSerializer
+    StudentSerializer, OptimizeRequestSerializer, SimulateStudentsRequestSerializer, ResourceSerializer
 from .tasks import dummy_gurobi_task
 from .services.simulator import StudentSimulatorService
 from .services.course_loader import CourseLoaderService
 from .services.enrollment_loader import EnrollmentLoaderService, XlsxEnrollmentLoaderService
 from .services.demo_updater import DemoUpdaterService
+from .services.optimizer import OptimizerService
 import datetime
 from django.shortcuts import get_object_or_404
 from .models import GeneratedSolution
+
+class DashboardStatsView(APIView):
+    """
+    Ana sayfa dashboard istatistikleri için verileri döner.
+    Aktif döneme ait sayıları hesaplar.
+    """
+    def get(self, request):
+        from .models import CourseSection
+        org = Organization.objects.first()
+        term = Term.objects.filter(organization=org, status='Active').first()
+
+        room_count = Resource.objects.filter(
+            type='CLASSROOM', is_active=True, capacity__isnull=False
+        ).count()
+
+        if term:
+            course_count = CourseSection.objects.filter(term=term).values('course_id').distinct().count()
+            student_count = Student.objects.filter(enrollments__term=term).distinct().count()
+            DONE_STATUSES = ['COMPLETED', 'OPTIMAL', 'FEASIBLE', 'FEASIBLE (TIME LIMIT)']
+            last_sol = GeneratedSolution.objects.filter(term=term, status__in=DONE_STATUSES).order_by('-created_at').first()
+            hard_conflicts = last_sol.solver_metadata.get('hard_conflicts', 0) if last_sol and last_sol.solver_metadata else 0
+        else:
+            course_count = 0
+            student_count = 0
+            hard_conflicts = 0
+            
+        return Response({
+            "course_count": course_count,
+            "student_count": student_count,
+            "hard_conflicts": hard_conflicts,
+            "room_count": room_count
+        })
 
 class SystemStatusView(APIView):
     """
@@ -51,8 +84,35 @@ class CourseCatalogViewSet(viewsets.ModelViewSet):
     ViewSet for full CRUD operations on the CourseCatalog model.
     Provides GET (list/retrieve), POST (create), PUT (update), PATCH, DELETE.
     """
-    queryset = CourseCatalog.objects.all()
     serializer_class = CourseCatalogSerializer
+
+    def get_queryset(self):
+        org = Organization.objects.first()
+        term = Term.objects.filter(organization=org, status='Active').first()
+        
+        # Temel süzgeç: Aktif dönemde şubesi (sections) olan veya genel katalogdan gelen dersler
+        if term:
+            qs = CourseCatalog.objects.filter(sections__term=term).distinct()
+        else:
+            qs = CourseCatalog.objects.all()
+
+        # URL PARAMETRELERİNE GÖRE FİLTRELEME
+        dept_id = self.request.query_params.get('dept')
+        year = self.request.query_params.get('year')
+        req_type = self.request.query_params.get('type')
+        search = self.request.query_params.get('search')
+
+        if dept_id and dept_id != 'Tümü':
+            qs = qs.filter(academic_unit_id=dept_id)
+        if year and year != 'Tümü':
+            qs = qs.filter(year_level=year)
+        if req_type and req_type != 'Tümü':
+            qs = qs.filter(requirement=req_type)
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+
+        return qs.order_by('code')
 
     @extend_schema(
         request={
@@ -215,15 +275,42 @@ class TermViewSet(viewsets.ModelViewSet):
     queryset = Term.objects.all()
     serializer_class = TermSerializer
 
+    def get_queryset(self):
+        qs = Term.objects.all()
+        status_param = self.request.query_params.get('status')
+        if status_param:
+            qs = qs.filter(status=status_param)
+        return qs.order_by('-status', 'name')
+
+    def perform_create(self, serializer):
+        status = serializer.validated_data.get('status')
+        instance = serializer.save()
+        if status == 'Active':
+            # Diğerlerini pasif yap
+            Term.objects.filter(organization=instance.organization).exclude(id=instance.id).update(status='Planning')
+
+    def perform_update(self, serializer):
+        status = serializer.validated_data.get('status')
+        instance = serializer.save()
+        if status == 'Active':
+            # Diğerlerini pasif yap
+            Term.objects.filter(organization=instance.organization).exclude(id=instance.id).update(status='Planning')
+
 
 class StudentViewSet(viewsets.ModelViewSet):
     """
     ViewSet for GET, GetAll, and a custom POST implementation handling CSV.
     """
-    queryset = Student.objects.all()
     serializer_class = StudentSerializer
     http_method_names = ['get', 'post', 'delete', 'head', 'options']
     parser_classes = (MultiPartParser, FormParser)
+
+    def get_queryset(self):
+        org = Organization.objects.first()
+        term = Term.objects.filter(organization=org, status='Active').first()
+        if term:
+            return Student.objects.filter(enrollments__term=term).distinct()
+        return Student.objects.all()
 
     @extend_schema(
         request={
@@ -341,6 +428,10 @@ class StudentViewSet(viewsets.ModelViewSet):
 
         department_id = request.query_params.get('department_id')
 
+        org = Organization.objects.first()
+        term = Term.objects.filter(organization=org, status='Active').first()
+        term_id_str = str(term.id) if term else "no-term"
+
         try:
             from django.db import connection
             with connection.cursor() as cur:
@@ -364,9 +455,10 @@ class StudentViewSet(viewsets.ModelViewSet):
                     JOIN academic_unit  aub ON aca.academic_unit_id = aub.id
                     JOIN academic_unit  aua ON acb.academic_unit_id = aua.id
                     WHERE sa.course_id::text < sb.course_id::text
+                      AND sa.term_id = %s AND sb.term_id = %s
                 """
                 
-                params = []
+                params = [term_id_str, term_id_str]
                 if department_id:
                     query += " AND (aca.academic_unit_id::text = %s OR acb.academic_unit_id::text = %s)"
                     params.extend([department_id, department_id])
@@ -505,8 +597,13 @@ class OptimizerViewSet(viewsets.ViewSet):
     @extend_schema(responses={200: {}})
     @action(detail=False, methods=['get'], url_path='history')
     def history(self, request):
-        """Tüm optimizasyon (çözüm) geçmişinin hafifletilmiş listesi."""
-        solutions = GeneratedSolution.objects.all().order_by('-created_at')[:50]
+        """Aktif dönemin optimizasyon (çözüm) geçmişinin hafifletilmiş listesi."""
+        org = Organization.objects.first()
+        term = Term.objects.filter(organization=org, status='Active').first()
+        if term:
+            solutions = GeneratedSolution.objects.filter(term=term).order_by('-created_at')[:50]
+        else:
+            solutions = GeneratedSolution.objects.none()
         res = []
         for s in solutions:
             res.append({
@@ -571,13 +668,7 @@ class OptimizerViewSet(viewsets.ViewSet):
             "departments": result,
         })
 
-    @extend_schema(
-        responses={200: {}},
-        parameters=[
-            OpenApiParameter(name='dept', type=str, location=OpenApiParameter.QUERY,
-                             description='Bölüm adı (Örn: BİLGİSAYAR MÜH.)', required=True),
-        ]
-    )
+    @extend_schema(responses={200: {}})
     @action(detail=True, methods=['get'], url_path='by-department')
     def by_department(self, request, pk=None):
         """
@@ -634,3 +725,16 @@ class OptimizerViewSet(viewsets.ViewSet):
             "penalties": dept_penalties,
         })
 
+    def destroy(self, request, pk=None):
+        """Çözümü (GeneratedSolution) siler."""
+        solution = get_object_or_404(GeneratedSolution, id=pk)
+        solution.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+class ResourceViewSet(viewsets.ModelViewSet):
+    serializer_class = ResourceSerializer
+
+    def get_queryset(self):
+        return Resource.objects.filter(organization__isnull=False)

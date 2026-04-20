@@ -102,6 +102,7 @@ class EnrollmentLoaderService:
         if enrollments_to_create:
             Enrollment.objects.bulk_create(enrollments_to_create, ignore_conflicts=True)
 
+
         return {
             "success": True,
             "message": f"Successfully loaded {len(student_records)} students and {len(enrollments_to_create)} enrollments."

@@ -135,7 +135,6 @@ class Term(models.Model):
     name = models.CharField(max_length=255)
     date_range = models.CharField(max_length=255, null=True, blank=True)
     status = models.CharField(max_length=20, choices=TermStatus.choices, default=TermStatus.PLANNING)
-
     class Meta:
         db_table = 'term'
 

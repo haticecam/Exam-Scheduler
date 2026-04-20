@@ -1,0 +1,260 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ─── Light Theme (`:root`) — DESIGN.md §3 ─────────────────────────────── */
+:root {
+  /* DESIGN.md surface hierarchy */
+  --surface:                    #f9fafb;
+  --surface-container-low:      #f3f4f6;
+  --surface-container:          #ffffff;
+  --surface-container-high:     #eaecf0;
+  --surface-container-highest:  #e5e7eb;
+  --surface-bright:             #ffffff;
+
+  /* DESIGN.md on-surface text */
+  --on-surface:         #111827;
+  --on-surface-variant: #6b7280;
+  --outline-variant:    #e5e7eb;
+
+  /* DESIGN.md accent — theme-invariant orange */
+  --primary:            #00bfd7;
+  --primary-container:  #ffedd5;
+  --primary-foreground: #18110b;
+
+  /* DESIGN.md neutral surfaces */
+  --secondary:            #f3f4f6;
+  --secondary-foreground: #111827;
+
+  /* Input fill */
+  --input: #ffffff;
+
+  /* Semantic status (same both themes — defined once here) */
+  --status-info:     #66b3ff;
+  --status-planning: #b197fc;
+  --status-success:  #4ade80;
+  --status-warning:  #fbbf24;
+  --status-danger:   #00bfd7;
+
+  /* Radius — theme-invariant (DESIGN.md §6) */
+  --radius: 0.5rem;
+
+  /* shadcn compat aliases so Button/Dialog/Input primitives keep working */
+  --background:             var(--surface);
+  --foreground:             var(--on-surface);
+  --card:                   var(--surface-container);
+  --card-foreground:        var(--on-surface);
+  --popover:                var(--surface-container-highest);
+  --popover-foreground:     var(--on-surface);
+  --muted:                  var(--surface-container-high);
+  --muted-foreground:       var(--on-surface-variant);
+  --accent:                 var(--surface-container-high);
+  --accent-foreground:      var(--on-surface);
+  --destructive:            var(--status-danger);
+  --border:                 var(--outline-variant);
+  --ring:                   var(--primary);
+}
+
+/* ─── Dark Theme (`.dark`) — DESIGN.md §3 ──────────────────────────────── */
+.dark {
+  --surface:                    #0e0e0e;
+  --surface-container-low:      #131313;
+  --surface-container:          #181818;
+  --surface-container-high:     #1e1e1e;
+  --surface-container-highest:  #252525;
+  --surface-bright:             #2d2d2d;
+
+  --on-surface:         #fafaf9;
+  --on-surface-variant: #a1a1aa;
+  --outline-variant:    #363636;
+
+  /* Orange accent is the same in both themes */
+  --primary-container:  #4f2408;
+
+  --secondary:            #1e1e1e;
+  --secondary-foreground: #fafaf9;
+
+  --input: #0e0e0e;
+
+  /* shadcn compat aliases (dark overrides) */
+  --background:         var(--surface);
+  --foreground:         var(--on-surface);
+  --card:               var(--surface-container);
+  --card-foreground:    var(--on-surface);
+  --popover:            var(--surface-container-highest);
+  --popover-foreground: var(--on-surface);
+  --muted:              var(--surface-container-high);
+  --muted-foreground:   var(--on-surface-variant);
+  --accent:             var(--surface-container-high);
+  --accent-foreground:  var(--on-surface);
+  --destructive:        var(--status-danger);
+  --border:             var(--outline-variant);
+  --ring:               var(--primary);
+}
+
+/* ─── @theme inline — Tailwind CSS v4 token wiring ─────────────────────── */
+@theme inline {
+  --font-sans: var(--font-sans);
+
+  /* Radius scale derived from base --radius (DESIGN.md §6) */
+  --radius-sm:  calc(var(--radius) * 0.6);
+  --radius-md:  calc(var(--radius) * 0.8);
+  --radius-lg:  var(--radius);
+  --radius-xl:  calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 1.75);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Surface tokens */
+  --color-surface:                   var(--surface);
+  --color-surface-container-low:     var(--surface-container-low);
+  --color-surface-container:         var(--surface-container);
+  --color-surface-container-high:    var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-surface-bright:            var(--surface-bright);
+
+  /* On-surface tokens */
+  --color-on-surface:         var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-outline-variant:    var(--outline-variant);
+
+  /* Primary */
+  --color-primary:            var(--primary);
+  --color-primary-container:  var(--primary-container);
+  --color-primary-foreground: var(--primary-foreground);
+
+  /* Secondary */
+  --color-secondary:            var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  /* Semantic status */
+  --color-status-info:     var(--status-info);
+  --color-status-planning: var(--status-planning);
+  --color-status-success:  var(--status-success);
+  --color-status-warning:  var(--status-warning);
+  --color-status-danger:   var(--status-danger);
+
+  /* shadcn compat */
+  --color-background:         var(--background);
+  --color-foreground:         var(--foreground);
+  --color-card:               var(--card);
+  --color-card-foreground:    var(--card-foreground);
+  --color-popover:            var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted:              var(--muted);
+  --color-muted-foreground:   var(--muted-foreground);
+  --color-accent:             var(--accent);
+  --color-accent-foreground:  var(--accent-foreground);
+  --color-destructive:        var(--destructive);
+  --color-input:              var(--input);
+  --color-border:             var(--border);
+  --color-ring:               var(--ring);
+}
+
+/* ─── Base layer ────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  body {
+    background-color: var(--surface);
+    color: var(--on-surface);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  /* Scrollbars — thin, receding (DESIGN.md §8) */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--outline-variant) 60%, transparent);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--outline-variant) 90%, transparent);
+  }
+
+  /* Native select options follow surface */
+  select option {
+    background: var(--surface-container);
+    color: var(--on-surface);
+  }
+
+  /* Dialog/alert-dialog: no gradient override */
+  [data-slot="dialog-content"],
+  [data-slot="alert-dialog-content"] {
+    background-image: none !important;
+  }
+}
+
+/* ─── Typography utilities (DESIGN.md §4) ──────────────────────────────── */
+@layer utilities {
+  .text-display {
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1.15;
+  }
+
+  .text-title-lg {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.3;
+  }
+
+  .text-title-md {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.4;
+  }
+
+  .text-body-md {
+    font-size: 0.875rem;
+    font-weight: 400;
+    letter-spacing: normal;
+    line-height: 1.5;
+  }
+
+  .text-body-sm {
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: normal;
+    line-height: 1.5;
+  }
+
+  .text-label-sm {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: normal;
+    line-height: 1.4;
+  }
+
+  .text-group-header {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    line-height: 1.4;
+  }
+}
+
+/* ─── Animations ────────────────────────────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
