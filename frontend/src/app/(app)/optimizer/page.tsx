@@ -141,44 +141,110 @@ export default function OptimizerPage() {
             <label style={lStyle}>ÇÖZÜM ADI <span style={{ color: C.textMuted }}>(opsiyonel)</span></label>
             <input style={iStyle} placeholder="Örn: Güz 2025 Test 3" value={params.name} onChange={e => setParams({ ...params, name: e.target.value })} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
             {[
               { label: "SINAV GÜN SAYISI", key: "exam_days" },
               { label: "GÜN BAŞI SLOT", key: "slots_per_day" },
               { label: "BAŞLANGIÇ SAATİ", key: "start_hour" },
-              { label: "HARD THRESHOLD", key: "hard_threshold" },
             ].map(f => (
-              <div key={f.key} style={{ marginBottom: 4 }}>
+              <div key={f.key}>
                 <label style={lStyle}>{f.label}</label>
                 <input style={iStyle} type="number" value={params[f.key as keyof typeof params] as number} onChange={e => setParams({ ...params, [f.key]: +e.target.value })} />
               </div>
             ))}
           </div>
-        </Card>
-
-        <Card style={{ padding: "24px" }}>
-          <SL>SOLVER AYARLARI (GUROBI)</SL>
-          <div style={{ marginBottom: 16 }}>
-            <label style={lStyle}>ZAMAN LİMİTİ (saniye)</label>
-            <input style={iStyle} type="number" value={params.time_limit} onChange={e => setParams({ ...params, time_limit: +e.target.value })} />
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi max bekleme · varsayılan 300 sn</div>
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={lStyle}>MIP GAP TOLERANSI</label>
-            <input style={iStyle} type="number" step="0.01" value={params.mip_gap} onChange={e => setParams({ ...params, mip_gap: +e.target.value })} />
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>0.10 = %10 gap · düşüktükçe daha uzun çalışır</div>
-          </div>
-          <div style={{ background: "var(--surface)", border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <input type="checkbox" id="btb" checked={params.no_back_to_back} onChange={e => setParams({ ...params, no_back_to_back: e.target.checked })} style={{ accentColor: C.accent, marginTop: 2, cursor: "pointer" }} />
-            <div>
-              <label htmlFor="btb" style={{ color: C.text, fontSize: 13, ...mono, cursor: "pointer", fontWeight: 600 }}>no_back_to_back</label>
-              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3, lineHeight: 1.6 }}>
-                Aynı bölüm derslerini arka arkaya vermeyi engeller.<br />
-                <span style={{ color: C.red, fontSize: 10 }}>TRUE → Hard Constraint · MIP süresi uzayabilir.</span>
-              </div>
+          <div>
+            <label style={lStyle}>ÇAKIŞMA EŞİĞİ (HARD THRESHOLD)</label>
+            <input style={iStyle} type="number" min={0} value={params.hard_threshold} onChange={e => setParams({ ...params, hard_threshold: +e.target.value })} />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 5, lineHeight: 1.6 }}>
+              Aynı anda iki sınava girecek öğrenci çakışmalarının <b>izin verilen maksimum sayısı</b>. <br />
+              <span style={{ color: C.textSub }}>0 → hiçbir çakışmaya izin verme (en katı, çözüm uzar) · yüksek değer çözümü hızlandırır ancak bazı öğrenciler çakışmalı sınava girebilir.</span>
             </div>
           </div>
-          {submitErr && !isRunning && <div style={{ marginTop: 14 }}><ErrorBox msg={submitErr} /></div>}
+        </Card>
+
+        <Card style={{ padding: "24px", display: "flex", flexDirection: "column", gap: 16 }}>
+          <SL>SOLVER AYARLARI (GUROBI)</SL>
+          <div>
+            <label style={lStyle}>ZAMAN LİMİTİ (saniye)</label>
+            <input style={iStyle} type="number" value={params.time_limit} onChange={e => setParams({ ...params, time_limit: +e.target.value })} />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · varsayılan 300 sn</div>
+          </div>
+          <div>
+            <label style={lStyle}>MIP GAP TOLERANSI</label>
+            <input style={iStyle} type="number" step="0.01" value={params.mip_gap} onChange={e => setParams({ ...params, mip_gap: +e.target.value })} />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>0.10 = %10 tolerans · düşüldükçe çözüm daha optimal ama daha yavaş</div>
+          </div>
+
+          {/* No back-to-back toggle */}
+          <button
+            type="button"
+            onClick={() => setParams(p => ({ ...p, no_back_to_back: !p.no_back_to_back }))}
+            style={{
+              background: params.no_back_to_back
+                ? `color-mix(in srgb, ${C.accent} 8%, transparent)`
+                : "var(--surface)",
+              border: `1px solid ${params.no_back_to_back ? C.accent + "66" : C.border}`,
+              borderRadius: 8,
+              padding: "14px 16px",
+              display: "flex",
+              gap: 14,
+              alignItems: "flex-start",
+              cursor: "pointer",
+              textAlign: "left",
+              width: "100%",
+              transition: "all 140ms ease-out",
+            }}
+          >
+            {/* Toggle pill */}
+            <div style={{
+              flexShrink: 0,
+              marginTop: 2,
+              width: 36,
+              height: 20,
+              borderRadius: 10,
+              background: params.no_back_to_back ? C.accent : C.border,
+              position: "relative",
+              transition: "background 140ms ease-out",
+            }}>
+              <div style={{
+                position: "absolute",
+                top: 3,
+                left: params.no_back_to_back ? 19 : 3,
+                width: 14,
+                height: 14,
+                borderRadius: "50%",
+                background: "#fff",
+                transition: "left 140ms ease-out",
+              }} />
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                <span style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>Arka Arkaya Sınav Engeli</span>
+                {params.no_back_to_back && (
+                  <span style={{
+                    fontSize: "0.6rem",
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    padding: "2px 7px",
+                    borderRadius: 4,
+                    background: `color-mix(in srgb, ${C.red} 14%, transparent)`,
+                    color: C.red,
+                    border: `1px solid color-mix(in srgb, ${C.red} 35%, transparent)`,
+                  }}>
+                    HARD KISIT
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.65 }}>
+                Aynı bölüm öğrencilerinin iki sınavının ardışık slotlara denk gelmesini engeller.
+                Öğrenci dostu çizelgeler üretir; ancak hard kısıt olarak uygulandığından
+                <span style={{ color: params.no_back_to_back ? C.amber : C.textMuted }}> çözüm süresi önemli ölçüde uzayabilir.</span>
+              </div>
+            </div>
+          </button>
+
+          {submitErr && !isRunning && <ErrorBox msg={submitErr} />}
         </Card>
       </div>
 

@@ -14,6 +14,24 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+function ModeBadge({ label, color }: { label: string; color: string }) {
+  return (
+    <span style={{
+      fontSize: "0.625rem",
+      fontWeight: 700,
+      letterSpacing: "0.1em",
+      textTransform: "uppercase",
+      padding: "3px 8px",
+      borderRadius: 4,
+      background: `color-mix(in srgb, ${color} 14%, transparent)`,
+      color,
+      border: `1px solid color-mix(in srgb, ${color} 35%, transparent)`,
+    }}>
+      {label}
+    </span>
+  );
+}
+
 const REQUIREMENT_OPTIONS = [
   { value: "COMPULSORY", label: "Zorunlu" },
   { value: "ELECTIVE", label: "Seçmeli" },
@@ -158,30 +176,39 @@ export default function CoursesPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* Production: course catalog upload */}
           <Card style={{ padding: 24 }}>
-            <SL>CSV VERİ YÜKLEME</SL>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
-              <CSVUploader
-                title="Ders Listesi (CSV)"
-                endpoint="/courses/upload/"
-                templateCols={["Course Name", "Capacity", "Program", "Instructor", "Mandatory", "Year", "T-hours"]}
-                extraData={term ? { term_id: term.id } : undefined}
-                onSuccess={refetch}
-              />
-              <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 16 }}>
-                <CSVUploader
-                  title="Tahmini Bölüm Kontenjanları (Geçmiş Yıl - CSV)"
-                  endpoint="/academic-units/update-estimates/"
-                  templateCols={["Ders Kodu", "Ders Adı", "Sınıf", "Kon", "Program"]}
-                  onSuccess={refetch}
-                />
-              </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <SL style={{ margin: 0 }}>Ders Kataloğu Yükleme</SL>
+              <ModeBadge label="Üretim" color="var(--status-success)" />
             </div>
+            <p style={{ color: C.textMuted, fontSize: 12, margin: "0 0 16px", lineHeight: 1.6 }}>
+              Üniversite ders kataloğunu CSV olarak yükleyin. Her satır bir ders bölümünü temsil eder ve aktif döneme atanır.
+            </p>
+            <CSVUploader
+              title="Ders Listesi (CSV)"
+              endpoint="/courses/upload/"
+              templateCols={["Course Name", "Capacity", "Program", "Instructor", "Mandatory", "Year", "T-hours"]}
+              extraData={term ? { term_id: term.id } : undefined}
+              onSuccess={refetch}
+            />
           </Card>
 
-          <Card style={{ padding: 24, color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>
-            <SL>YARDIM</SL>
-            Ders kataloğu aktif döneme göre filtrelenmiştir. Filtreleri kullanarak spesifik bölümlerin derslerini inceleyebilir veya yeni dersleri CSV üzerinden topluca yükleyebilirsiniz.
+          {/* Demo: cohort size estimates */}
+          <Card style={{ padding: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              <SL style={{ margin: 0 }}>Kontenjan Tahmini Güncelleme</SL>
+              <ModeBadge label="Demo" color="var(--status-warning)" />
+            </div>
+            <p style={{ color: C.textMuted, fontSize: 12, margin: "0 0 16px", lineHeight: 1.6 }}>
+              Yalnızca gerçek öğrenci kaydı bulunmayan ortamlarda kullanılır. Geçmiş yıl verilerinden bölüm kontenjan tahminleri üretir. Gerçek öğrenci kayıtları yüklendiğinde optimizasyon bu tahminlere ihtiyaç duymaz.
+            </p>
+            <CSVUploader
+              title="Tahmini Bölüm Kontenjanları (Geçmiş Yıl - CSV)"
+              endpoint="/academic-units/update-estimates/"
+              templateCols={["Ders Kodu", "Ders Adı", "Sınıf", "Kon", "Program"]}
+              onSuccess={refetch}
+            />
           </Card>
         </div>
       </div>

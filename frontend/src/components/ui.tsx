@@ -87,7 +87,7 @@ export const Card = ({ children, style = {} }: { children: React.ReactNode; styl
 );
 
 /* ── SL — section label ───────────────────────────────────────────────────── */
-export const SL = ({ children }: { children: React.ReactNode }) => (
+export const SL = ({ children, style = {} }: { children: React.ReactNode; style?: React.CSSProperties }) => (
   <div style={{
     fontSize: "0.6875rem",
     fontWeight: 600,
@@ -95,6 +95,7 @@ export const SL = ({ children }: { children: React.ReactNode }) => (
     textTransform: "uppercase",
     color: "var(--on-surface-variant)",
     marginBottom: 14,
+    ...style,
   }}>
     {children}
   </div>
