@@ -20,7 +20,7 @@
   --outline-variant:    #e5e7eb;
 
   /* DESIGN.md accent — theme-invariant orange */
-  --primary:            #f97316;
+  --primary:            #00bfd7;
   --primary-container:  #ffedd5;
   --primary-foreground: #18110b;
 
@@ -36,7 +36,7 @@
   --status-planning: #b197fc;
   --status-success:  #4ade80;
   --status-warning:  #fbbf24;
-  --status-danger:   #f87171;
+  --status-danger:   #00bfd7;
 
   /* Radius — theme-invariant (DESIGN.md §6) */
   --radius: 0.5rem;
