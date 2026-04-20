@@ -1,5 +1,6 @@
 "use client";
 import React from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useFetch } from "@/lib/api";
@@ -88,14 +89,19 @@ export default function Sidebar() {
     }}>
       {/* Logo */}
       <div style={{
-        padding: "20px 20px 16px",
+        padding: "16px 20px",
         borderBottom: "1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent)",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
       }}>
+        <Image src="/aybu-logo.png" alt="AYBU Logo" width={36} height={36} style={{ flexShrink: 0 }} />
         <div style={{
           fontWeight: 700,
-          fontSize: "1.125rem",
+          fontSize: "1rem",
           color: "var(--on-surface)",
           letterSpacing: "-0.02em",
+          lineHeight: 1.2,
         }}>
           Exam Scheduler
         </div>

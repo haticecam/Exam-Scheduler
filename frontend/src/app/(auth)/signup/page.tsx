@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { C, mono } from "@/lib/colors";
@@ -57,6 +58,7 @@ export default function SignupPage() {
   return (
     <div style={{ width: 400, ...mono }}>
       <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <Image src="/aybu-logo.png" alt="AYBU Logo" width={80} height={80} style={{ margin: "0 auto 16px", display: "block" }} />
         <div style={{ fontSize: 24, fontWeight: 800, color: C.text, letterSpacing: "-0.02em" }}>
           Exam Scheduler
         </div>
