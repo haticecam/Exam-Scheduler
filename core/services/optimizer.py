@@ -135,7 +135,7 @@ class OptimizerService:
 
         ROOMS = self.load_rooms()
 
-        rooms = self.get_dynamic_rooms()
+        rooms = ROOMS
         courses = self.load_courses()
         conflicts = self.load_conflict_matrix()
 
@@ -335,36 +335,48 @@ class OptimizerService:
         penalties = []
         total_penalty = 0.0
         # Add Overlap Penalties
+        seen_overlap = set()
         for cv in conflict_vars:
             if cv["var"].X > 0.5:
+                pair_key = (min(cv["ua"], cv["ub"]), max(cv["ua"], cv["ub"]))
+                if pair_key in seen_overlap:
+                    continue
+                seen_overlap.add(pair_key)
                 total_penalty += cv["weight"] * cv["var"].X
                 day, session = cv["t"] // slots_per_day, cv["t"] % slots_per_day
+                dept_a = info[cv["ua"]]["student_dept"]
+                dept_b = info[cv["ub"]]["student_dept"]
                 penalties.append({
                     "desc": cv["desc"],
                     "penalty": round(cv["weight"] * cv["var"].X, 1),
                     "day": day_labels[day],
-                    "type": "ÇAKIŞMA"
+                    "type": "ÇAKIŞMA",
+                    "depts": list({dept_a, dept_b}),
                 })
-        
+
         # Add Daily Spread Penalties
+        seen_spread = set()
         for dv in daily_spread_vars:
             if dv["var"].X > 0.5:
-                # Find which specific courses from this group are on this specific day
-                day_courses = [s["code"] for s in schedule 
-                               if s["dept"] == dv["dept"] and s["year"] == dv["year"] and s["day"] == day_labels[dv["d"]]]
-                
-                # can be 1 (double exam), 2 (triple exam) etc.
+                spread_key = (dv["dept"], dv["year"], dv["d"])
+                if spread_key in seen_spread:
+                    continue
+                seen_spread.add(spread_key)
+                # Deduplicate course codes for this group/day
+                day_courses = list(dict.fromkeys(
+                    s["code"] for s in schedule
+                    if s["dept"] == dv["dept"] and s["year"] == dv["year"] and s["day"] == day_labels[dv["d"]]
+                ))
                 val = round(dv["var"].X)
                 total_penalty += dv["weight"] * val
-                
                 course_str = " ve ".join(day_courses) if day_courses else dv["dept"]
                 refined_desc = f"{course_str} dersleri aynı güne ({day_labels[dv['d']]}) planlandı."
-                
                 penalties.append({
                     "desc": refined_desc,
                     "penalty": round(dv["weight"] * val, 1),
                     "day": day_labels[dv["d"]],
-                    "type": "YAYILIM"
+                    "type": "YAYILIM",
+                    "dept": dv["dept"],
                 })
 
         status_map = {

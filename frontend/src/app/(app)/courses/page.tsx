@@ -1,17 +1,27 @@
 "use client";
-import React from "react";
+import React, { useState } from "react";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
-import { Card, SL, CSVUploader, Spinner, InfoBox, Badge, PageContainer, PageHeader, DataTable, DataRow, DataCell, ActionButton } from "@/components/ui";
+import { Card, SL, CSVUploader, Spinner, InfoBox, PageContainer, PageHeader, DataTable, DataRow, DataCell, ActionButton } from "@/components/ui";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+const REQUIREMENT_OPTIONS = [
+  { value: "COMPULSORY", label: "Zorunlu" },
+  { value: "ELECTIVE", label: "Seçmeli" },
+];
 
 export default function CoursesPage() {
-  const [page, setPage] = React.useState(1);
-  const [filters, setFilters] = React.useState({
-    dept: "Tümü",
-    year: "Tümü",
-    type: "Tümü",
-    search: ""
-  });
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ dept: "Tümü", year: "Tümü", type: "Tümü", search: "" });
 
   const queryParams = new URLSearchParams();
   queryParams.set("page", page.toString());
@@ -29,9 +39,55 @@ export default function CoursesPage() {
   const { data, loading, refetch } = useFetch(`/courses/?${queryParams.toString()}`);
   const rows = data?.results || data || [];
 
+  // Edit dialog state
+  const [editCourse, setEditCourse] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ code: "", name: "", year_level: "", requirement: "", weekly_hours_lecture: "", weekly_hours_lab: "", default_credits: "" });
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState("");
+
+  const openEdit = (course: any) => {
+    setEditCourse(course);
+    setEditForm({
+      code: course.code ?? "",
+      name: course.name ?? "",
+      year_level: course.year_level != null ? String(course.year_level) : "",
+      requirement: course.requirement ?? "COMPULSORY",
+      weekly_hours_lecture: course.weekly_hours_lecture != null ? String(course.weekly_hours_lecture) : "",
+      weekly_hours_lab: course.weekly_hours_lab != null ? String(course.weekly_hours_lab) : "",
+      default_credits: course.default_credits != null ? String(course.default_credits) : "",
+    });
+    setEditError("");
+  };
+
+  const handleEdit = async () => {
+    if (!editCourse) return;
+    setEditLoading(true);
+    setEditError("");
+    try {
+      const payload: Record<string, any> = {
+        code: editForm.code,
+        name: editForm.name,
+        requirement: editForm.requirement || null,
+      };
+      if (editForm.year_level !== "") payload.year_level = parseInt(editForm.year_level);
+      if (editForm.weekly_hours_lecture !== "") payload.weekly_hours_lecture = parseInt(editForm.weekly_hours_lecture);
+      if (editForm.weekly_hours_lab !== "") payload.weekly_hours_lab = parseInt(editForm.weekly_hours_lab);
+      if (editForm.default_credits !== "") payload.default_credits = parseFloat(editForm.default_credits);
+
+      await api.patch(`/courses/${editCourse.id}/`, payload);
+      refetch();
+      setEditCourse(null);
+    } catch (err: any) {
+      setEditError(err.data ? Object.values(err.data).flat().join(" ") : err.message || "Güncelleme başarısız.");
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setEditForm(f => ({ ...f, [field]: e.target.value }));
+
   const selectStyle = { width: "100%", background: "#0d0e1a", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px", color: C.text, fontSize: 13, outline: "none" };
-
-
 
   return (
     <PageContainer style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -75,8 +131,8 @@ export default function CoursesPage() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 24 }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <DataTable headers={["Ders Kodu", "Ders Adı", "Sınıf", "Tür", ""]}>
-            {loading && <DataRow><DataCell colSpan={6} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell></DataRow>}
-            {!loading && rows.length === 0 && <DataRow><DataCell colSpan={6}><InfoBox msg="Uygun ders bulunamadı." /></DataCell></DataRow>}
+            {loading && <DataRow><DataCell colSpan={5} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell></DataRow>}
+            {!loading && rows.length === 0 && <DataRow><DataCell colSpan={5}><InfoBox msg="Uygun ders bulunamadı." /></DataCell></DataRow>}
             {rows.map((row: any) => (
               <DataRow key={row.id}>
                 <DataCell style={{ color: C.cyan, ...mono, fontWeight: 600 }}>{row.code}</DataCell>
@@ -87,8 +143,9 @@ export default function CoursesPage() {
                     {row.requirement === "COMPULSORY" ? "ZORUNLU" : "SEÇMELİ"}
                   </span>
                 </DataCell>
-                {/* <DataCell style={{ ...mono, color: C.textSub }}>{row.default_credits || "3.0"}</DataCell> */}
-                <DataCell style={{ textAlign: "right", color: C.textMuted }}>⋮</DataCell>
+                <DataCell style={{ textAlign: "right" }}>
+                  <ActionButton variant="secondary" onClick={() => openEdit(row)}>Düzenle</ActionButton>
+                </DataCell>
               </DataRow>
             ))}
           </DataTable>
@@ -128,6 +185,69 @@ export default function CoursesPage() {
           </Card>
         </div>
       </div>
+
+      {/* Edit dialog */}
+      <Dialog open={!!editCourse} onOpenChange={open => { if (!open) setEditCourse(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Dersi Düzenle</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="e-code">Ders Kodu</Label>
+                <Input id="e-code" value={editForm.code} onChange={set("code")} autoFocus />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="e-year">Sınıf (1–4)</Label>
+                <Input id="e-year" type="number" min={1} max={4} value={editForm.year_level} onChange={set("year_level")} placeholder="—" />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="e-name">Ders Adı</Label>
+              <Input id="e-name" value={editForm.name} onChange={set("name")} />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="e-req">Tür</Label>
+              <select
+                id="e-req"
+                value={editForm.requirement}
+                onChange={set("requirement")}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {REQUIREMENT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="e-lec">Teorik Saat</Label>
+                <Input id="e-lec" type="number" min={0} value={editForm.weekly_hours_lecture} onChange={set("weekly_hours_lecture")} placeholder="—" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="e-lab">Lab Saat</Label>
+                <Input id="e-lab" type="number" min={0} value={editForm.weekly_hours_lab} onChange={set("weekly_hours_lab")} placeholder="—" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="e-cred">Kredi</Label>
+                <Input id="e-cred" type="number" min={0} step={0.5} value={editForm.default_credits} onChange={set("default_credits")} placeholder="—" />
+              </div>
+            </div>
+
+            {editError && <p className="text-sm text-destructive">{editError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditCourse(null)} disabled={editLoading}>İptal</Button>
+            <Button onClick={handleEdit} disabled={editLoading || !editForm.code || !editForm.name}>
+              {editLoading ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageContainer>
   );
 }

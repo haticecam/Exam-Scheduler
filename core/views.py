@@ -309,7 +309,7 @@ class StudentViewSet(viewsets.ModelViewSet):
         org = Organization.objects.first()
         term = Term.objects.filter(organization=org, status='Active').first()
         if term:
-            return Student.objects.filter(term=term)
+            return Student.objects.filter(enrollments__term=term).distinct()
         return Student.objects.all()
 
     @extend_schema(

@@ -44,7 +44,7 @@ export default function OptimizerPage() {
           stopPoll(); setRunSt("done");
         } else if (FAIL_STATUSES.includes(sol?.status)) {
           stopPoll();
-          setIis(sol?.solver_metadata?.infeasibility_reasons || []);
+          setIis(sol?.stats?.infeasibility_reasons || []);
           setRunSt(sol.status === "INFEASIBLE" ? "infeasible" : "error");
         }
       } catch { /* ignore transient */ }
