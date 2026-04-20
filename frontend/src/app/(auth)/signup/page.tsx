@@ -45,7 +45,7 @@ export default function SignupPage() {
 
   const inputStyle: React.CSSProperties = {
     width: "100%", boxSizing: "border-box",
-    background: "#0d0e1a", border: `1px solid ${C.border}`, borderRadius: 8,
+    background: "var(--surface)", border: `1px solid ${C.border}`, borderRadius: 8,
     padding: "10px 14px", color: C.text, fontSize: 13, outline: "none",
     ...mono,
   };
@@ -87,7 +87,7 @@ export default function SignupPage() {
           </div>
 
           {error && (
-            <div style={{ background: "#1f0f0f", border: "1px solid #e0555544", borderRadius: 8, padding: "10px 14px", color: "#e05555", fontSize: 12, marginBottom: 16 }}>
+            <div style={{ background: C.redSoft, border: `1px solid color-mix(in srgb, ${C.red} 40%, transparent)`, borderRadius: 8, padding: "10px 14px", color: C.red, fontSize: 12, marginBottom: 16 }}>
               {error}
             </div>
           )}
