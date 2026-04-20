@@ -87,7 +87,7 @@ export default function CoursesPage() {
   const set = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setEditForm(f => ({ ...f, [field]: e.target.value }));
 
-  const selectStyle = { width: "100%", background: "#0d0e1a", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px", color: C.text, fontSize: 13, outline: "none" };
+  const selectStyle = { width: "100%", background: "var(--surface)", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px", color: C.text, fontSize: 13, outline: "none" };
 
   return (
     <PageContainer style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -139,7 +139,7 @@ export default function CoursesPage() {
                 <DataCell>{row.name}</DataCell>
                 <DataCell style={{ color: C.textSub, fontSize: 12 }}>{row.year_level ? `${row.year_level}. Sınıf` : "—"}</DataCell>
                 <DataCell>
-                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: row.requirement === "COMPULSORY" ? "#1a2421" : "#1a1b2e", color: row.requirement === "COMPULSORY" ? "#52c41a" : C.accent }}>
+                  <span style={{ fontSize: 10, padding: "3px 8px", borderRadius: 4, background: row.requirement === "COMPULSORY" ? C.greenSoft : C.cyanSoft, color: row.requirement === "COMPULSORY" ? C.green : C.accent }}>
                     {row.requirement === "COMPULSORY" ? "ZORUNLU" : "SEÇMELİ"}
                   </span>
                 </DataCell>
@@ -179,7 +179,7 @@ export default function CoursesPage() {
             </div>
           </Card>
 
-          <Card style={{ padding: 24, background: "#0a0b14", color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>
+          <Card style={{ padding: 24, color: C.textMuted, fontSize: 12, lineHeight: 1.6 }}>
             <SL>YARDIM</SL>
             Ders kataloğu aktif döneme göre filtrelenmiştir. Filtreleri kullanarak spesifik bölümlerin derslerini inceleyebilir veya yeni dersleri CSV üzerinden topluca yükleyebilirsiniz.
           </Card>

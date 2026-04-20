@@ -77,7 +77,7 @@ export default function OptimizerPage() {
 
   const barColor = runSt === "done" ? C.green : runSt === "error" || runSt === "infeasible" ? C.red : C.accent;
 
-  const iStyle = { background: "#0d0e1a", border: `1px solid ${C.border}`, borderRadius: 6, padding: "9px 12px", color: C.text, ...mono, fontSize: 13, width: "100%", boxSizing: "border-box" as const };
+  const iStyle = { background: "var(--surface)", border: `1px solid ${C.border}`, borderRadius: 6, padding: "9px 12px", color: C.text, ...mono, fontSize: 13, width: "100%", boxSizing: "border-box" as const };
   const lStyle = { fontSize: 11, color: C.textMuted, ...mono, letterSpacing: "0.06em", display: "block", marginBottom: 6 };
 
   return (
@@ -168,7 +168,7 @@ export default function OptimizerPage() {
             <input style={iStyle} type="number" step="0.01" value={params.mip_gap} onChange={e => setParams({ ...params, mip_gap: +e.target.value })} />
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>0.10 = %10 gap · düşüktükçe daha uzun çalışır</div>
           </div>
-          <div style={{ background: "#0d0e1a", border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <div style={{ background: "var(--surface)", border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
             <input type="checkbox" id="btb" checked={params.no_back_to_back} onChange={e => setParams({ ...params, no_back_to_back: e.target.checked })} style={{ accentColor: C.accent, marginTop: 2, cursor: "pointer" }} />
             <div>
               <label htmlFor="btb" style={{ color: C.text, fontSize: 13, ...mono, cursor: "pointer", fontWeight: 600 }}>no_back_to_back</label>

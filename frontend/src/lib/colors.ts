@@ -1,33 +1,33 @@
 export const C = {
   /* Surfaces */
-  bg:           "#0e0e0e",
-  surface:      "#131313",
-  surfaceHover: "#1e1e1e",
+  bg:           "var(--surface)",
+  surface:      "var(--surface-container-low)",
+  surfaceHover: "var(--surface-container-high)",
 
   /* Borders */
-  border:       "#363636",
-  borderLight:  "#2d2d2d",
+  border:       "var(--outline-variant)",
+  borderLight:  "var(--surface-bright)",
 
-  /* Accent — orange (DESIGN.md §3) */
-  accent:     "#f97316",
-  accentSoft: "#4f2408",
+  /* Accent — orange */
+  accent:     "var(--primary)",
+  accentSoft: "var(--primary-container)",
 
   /* Semantic status */
-  cyan:       "#66b3ff",
-  cyanSoft:   "#0d1a2e",
-  green:      "#4ade80",
-  greenSoft:  "#0d1f17",
-  amber:      "#fbbf24",
-  amberSoft:  "#1f1708",
-  red:        "#f87171",
-  redSoft:    "#1f0f0f",
-  purple:     "#b197fc",
-  purpleSoft: "#1a1530",
+  cyan:       "var(--status-info)",
+  cyanSoft:   "color-mix(in srgb, var(--status-info) 12%, transparent)",
+  green:      "var(--status-success)",
+  greenSoft:  "color-mix(in srgb, var(--status-success) 12%, transparent)",
+  amber:      "var(--status-warning)",
+  amberSoft:  "color-mix(in srgb, var(--status-warning) 12%, transparent)",
+  red:        "var(--status-danger)",
+  redSoft:    "color-mix(in srgb, var(--status-danger) 12%, transparent)",
+  purple:     "var(--status-planning)",
+  purpleSoft: "color-mix(in srgb, var(--status-planning) 12%, transparent)",
 
   /* Text */
-  text:      "#fafaf9",
-  textSub:   "#a1a1aa",
-  textMuted: "#a1a1aa",
+  text:      "var(--on-surface)",
+  textSub:   "var(--on-surface-variant)",
+  textMuted: "var(--on-surface-variant)",
 };
 
-export const mono = { fontFamily: "var(--font-sans, ui-monospace, monospace)" };
+export const mono = { fontFamily: "var(--font-sans, ui-sans-serif, system-ui)" };

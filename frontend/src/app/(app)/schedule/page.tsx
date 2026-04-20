@@ -114,7 +114,7 @@ function ScheduleContent() {
   };
 
   const selectStyle = {
-    background: "#0d0e1a",
+    background: "var(--surface)",
     border: `1px solid ${C.border}`,
     borderRadius: 8,
     padding: "10px 16px",
@@ -162,9 +162,9 @@ function ScheduleContent() {
       />
 
       {showConflicts && (
-        <div style={{ background: "#1a0b0b", border: `1px solid #e0555544`, borderRadius: 12, padding: 24, marginBottom: 32 }}>
+        <div style={{ background: C.redSoft, border: `1px solid color-mix(in srgb, var(--status-danger) 40%, transparent)`, borderRadius: 12, padding: 24, marginBottom: 32 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <h3 style={{ margin: 0, fontSize: 18, color: "#e05555", fontWeight: 800, ...mono }}>
+            <h3 style={{ margin: 0, fontSize: 18, color: C.red, fontWeight: 800, ...mono }}>
               Çakışma ve Dağılım Detayları
               {deptFilter && (
                 <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 400, marginLeft: 12 }}>
@@ -179,7 +179,7 @@ function ScheduleContent() {
           </div>
 
           {deptFilter && !penaltiesHaveDeptInfo && (
-            <div style={{ marginBottom: 12, padding: "8px 14px", borderRadius: 6, background: "#1a1708", border: "1px solid #f5a62344", fontSize: 12, color: "#f5a623" }}>
+            <div style={{ marginBottom: 12, padding: "8px 14px", borderRadius: 6, background: C.amberSoft, border: `1px solid color-mix(in srgb, var(--status-warning) 40%, transparent)`, fontSize: 12, color: C.amber }}>
               Bu çözüm bölüm bilgisi içermiyor. Bölüme göre filtreleme için optimizörü yeniden çalıştırın.
             </div>
           )}
@@ -195,10 +195,10 @@ function ScheduleContent() {
                 <div
                   key={i}
                   style={{
-                    background: "#ffffff04",
+                    background: "var(--surface-container-high)",
                     padding: "10px 16px",
                     borderRadius: 6,
-                    borderLeft: `3px solid ${p.type === "ÇAKIŞMA" ? "#e05555" : "#f5a623"}88`,
+                    borderLeft: `3px solid ${p.type === "ÇAKIŞMA" ? "var(--status-danger)" : "var(--status-warning)"}`,
                     fontSize: 13,
                     color: C.text,
                     display: "flex",
@@ -213,8 +213,8 @@ function ScheduleContent() {
                       fontSize: 10,
                       padding: "2px 7px",
                       borderRadius: 4,
-                      background: p.type === "ÇAKIŞMA" ? "#2a0d0d" : "#2a1f0d",
-                      color: p.type === "ÇAKIŞMA" ? "#e05555" : "#f5a623",
+                      background: p.type === "ÇAKIŞMA" ? C.redSoft : C.amberSoft,
+                      color: p.type === "ÇAKIŞMA" ? C.red : C.amber,
                       ...mono,
                     }}>
                       {p.type}
@@ -242,13 +242,13 @@ function ScheduleContent() {
       {!loading && bestSol && assignments.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
           {sortedDays.map(day => (
-            <div key={day} style={{ display: "flex", flexDirection: "column", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", background: "#0d0e1a" }}>
-              <div style={{ background: "#1a1c35", padding: "14px 24px", borderBottom: `1px solid ${C.border}` }}>
-                <h3 style={{ margin: 0, fontSize: 18, color: "#fff", fontWeight: 800, ...mono }}>{day.toUpperCase()}</h3>
+            <div key={day} style={{ display: "flex", flexDirection: "column", border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden", background: "var(--surface-container)" }}>
+              <div style={{ background: "var(--surface-container-low)", padding: "14px 24px", borderBottom: `1px solid ${C.border}` }}>
+                <h3 style={{ margin: 0, fontSize: 18, color: C.text, fontWeight: 800, ...mono }}>{day.toUpperCase()}</h3>
               </div>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
-                  <tr style={{ background: "#ffffff04" }}>
+                  <tr style={{ background: "var(--surface-container-low)" }}>
                     <th style={{ textAlign: "left", padding: "12px 24px", fontSize: 11, ...mono, color: C.textMuted, borderBottom: `1px solid ${C.border}`, width: "20%" }}>ZAMAN</th>
                     <th style={{ textAlign: "left", padding: "12px 24px", fontSize: 11, ...mono, color: C.textMuted, borderBottom: `1px solid ${C.border}`, width: "45%" }}>DERS ADI / BİLGİSİ</th>
                     <th style={{ textAlign: "left", padding: "12px 24px", fontSize: 11, ...mono, color: C.textMuted, borderBottom: `1px solid ${C.border}`, width: "35%" }}>SINAV YERİ</th>
@@ -260,7 +260,7 @@ function ScheduleContent() {
                       {Object.keys(grouped[day][time]).map((cKey, cIdx) => {
                         const course = grouped[day][time][cKey];
                         return (
-                          <tr key={cKey} style={{ borderBottom: `1px solid ${C.border}44`, background: cIdx % 2 === 0 ? "transparent" : "#ffffff01" }}>
+                          <tr key={cKey} style={{ borderBottom: `1px solid ${C.border}`, background: "transparent" }}>
                             {cIdx === 0 && (
                               <td rowSpan={Object.keys(grouped[day][time]).length} style={{ padding: "16px 24px", verticalAlign: "top", borderRight: `1px solid ${C.border}22`, color: C.cyan, fontWeight: 700, fontSize: 14 }}>
                                 {time}
@@ -271,7 +271,7 @@ function ScheduleContent() {
                               <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
                                 <span style={{ fontSize: 11, color: C.accent, fontWeight: 700, ...mono }}>{course.code}</span>
                                 {course.year && (
-                                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#1a1c35", color: C.textSub, ...mono }}>
+                                  <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "var(--surface-container-high)", color: C.textSub, ...mono }}>
                                     {course.year}. Sınıf
                                   </span>
                                 )}

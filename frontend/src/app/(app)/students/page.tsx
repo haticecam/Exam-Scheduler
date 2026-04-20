@@ -73,7 +73,7 @@ export default function StudentsPage() {
   };
 
   const selectStyle = {
-    background: "#0d0e1a",
+    background: "var(--surface)",
     border: `1px solid ${C.border}`,
     borderRadius: 8,
     padding: "9px 12px",
@@ -114,7 +114,7 @@ export default function StudentsPage() {
             </div>
           )}
           {simError && (
-            <div style={{ marginTop: 12, color: "#e05555", fontSize: 13, ...mono }}>{simError}</div>
+            <div style={{ marginTop: 12, color: C.red, fontSize: 13, ...mono }}>{simError}</div>
           )}
         </Card>
 
@@ -228,8 +228,8 @@ export default function StudentsPage() {
                   fontSize: 12,
                   fontWeight: 700,
                   ...mono,
-                  background: c.shared_students >= 20 ? "#2a1018" : c.shared_students >= 10 ? "#1f1a10" : "#101a1f",
-                  color: c.shared_students >= 20 ? "#e05555" : c.shared_students >= 10 ? "#f5a623" : C.cyan,
+                  background: c.shared_students >= 20 ? C.redSoft : c.shared_students >= 10 ? C.amberSoft : C.cyanSoft,
+                  color: c.shared_students >= 20 ? C.red : c.shared_students >= 10 ? C.amber : C.cyan,
                 }}>
                   {c.shared_students}
                 </span>

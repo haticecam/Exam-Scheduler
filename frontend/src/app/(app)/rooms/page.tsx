@@ -104,7 +104,7 @@ export default function RoomsPage() {
     }
   };
 
-  const inputStyle = { width: "100%", background: "#0d0e1a", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", color: C.text, outline: "none", fontSize: 13 };
+  const inputStyle = { width: "100%", background: "var(--surface)", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", color: C.text, outline: "none", fontSize: 13 };
 
   return (
     <PageContainer>
@@ -134,7 +134,7 @@ export default function RoomsPage() {
                 </select>
               </div>
             </div>
-            {saveError && <p style={{ color: "#e05555", fontSize: 12, margin: 0 }}>{saveError}</p>}
+            {saveError && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{saveError}</p>}
             <ActionButton disabled={saving || !name || !capacity} icon="+">
               {saving ? "Ekleniyor..." : "Odayı Kaydet"}
             </ActionButton>
@@ -149,7 +149,7 @@ export default function RoomsPage() {
               <DataRow key={room.id}>
                 <DataCell style={{ fontWeight: 600 }}>{room.name}</DataCell>
                 <DataCell>
-                  <span style={{ fontSize: 11, background: "#1a1b2e", color: C.cyan, padding: "4px 8px", borderRadius: 4, ...mono }}>{room.type}</span>
+                  <span style={{ fontSize: 11, background: C.cyanSoft, color: C.cyan, padding: "4px 8px", borderRadius: 4, ...mono }}>{room.type}</span>
                 </DataCell>
                 <DataCell style={{ color: C.textSub, ...mono }}>{room.capacity} Kişi</DataCell>
                 <DataCell>
