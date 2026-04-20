@@ -1,118 +1,98 @@
-# Exam Scheduler API
+# Exam Scheduler
 
-A modular, highly scalable API designed to manage university exam scheduling and student enrollments. Powered by Django, PostgreSQL, Redis, Celery, and the Gurobi Optimization Engine (MILP).
+A full-stack university exam scheduling system. The backend is a Django REST API powered by Gurobi MILP optimization, Celery, Redis, and PostgreSQL. The frontend is a Next.js 16 dashboard for managing courses, students, rooms, and running the optimizer.
 
-## 🚀 Features
-- **Course & Department Management:** Automatically generates departments, instructors, courses, and course sections via CSV upload (`CourseLoaderService`).
-- **Dynamic Optimization Planning:** Scheduling units are automatically split by department (e.g., PHYSICS I for CS is planned independently from PHYSICS I for SE), ensuring realistic constraint management.
-- **Asynchronous Solver:** Optimization runs are handled by Celery workers to prevent HTTP timeouts. Supporting long-running Gurobi jobs (from 5 mins to hours).
-- **IIS Diagnostics:** If a schedule is "Infeasible," the system automatically performs an Irreducible Inconsistent Subsystem (IIS) analysis to tell you exactly which constraints are conflicting (e.g., "Not enough room capacity for Physics I").
-- **Student Simulator:** Generates realistic, fully randomized student course enrollment plans to emulate a live university environment.
-- **Departmental Views:** Dedicated endpoints to view results filtered and grouped by department.
-- **Token Authentication:** All API endpoints are protected with DRF token authentication.
-- **Rate Limiting:** The optimizer is capped at 3 concurrent runs per term (DB-based, no extra dependencies).
-- **Exam Rooms in Database:** Room capacities are stored in the `Resource` model and loaded dynamically by the optimizer.
+## Stack
 
-## 🛠 Technologies Used
-- **Backend:** Django 6 / Django REST Framework
-- **Optimization:** Gurobi MILP Engine (Academic WLS)
-- **Background Tasks:** Celery + Redis
-- **Database:** PostgreSQL
-- **DevOps:** Docker & Docker Compose (Python 3.12)
-- **API Docs:** Swagger (drf-spectacular)
+| Layer | Tech |
+|---|---|
+| Backend API | Django 6 / Django REST Framework |
+| Optimization | Gurobi MILP Engine (Academic WLS) |
+| Background Tasks | Celery + Redis |
+| Database | PostgreSQL |
+| Frontend | Next.js 16 / React 19 / Tailwind CSS |
+| DevOps | Docker & Docker Compose |
+| API Docs | Swagger (drf-spectacular) at `http://localhost:8000/api/docs/` |
 
-## 📦 Installation & Setup
+## Quick Start
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/haticecam/exam-scheduler.git
-   cd exam-scheduler
-   ```
+### 1. Clone the repository
 
-2. **Gurobi WLS License Setup:**
-   *   Log in to [Gurobi User Portal](https://portal.gurobi.com/).
-   *   Go to **Licenses > Web License Service (WLS)**.
-   *   Click on your Active Academic WLS license and click **Download License**.
-   *   Open the `gurobi.lic` file. You will need `WLSACCESSID`, `WLSSECRET`, and `LICENSEID`.
-
-3. **Environment Configuration:**
-   ```bash
-   cp .env.example .env
-   ```
-   Edit `.env` and fill in your values:
-   ```env
-   SECRET_KEY=your-django-secret-key
-   DEBUG=False
-   ALLOWED_HOSTS=localhost,127.0.0.1
-   DATABASE_URL=postgresql://admin:adminpassword@db:5432/examscheduler
-   REDIS_URL=redis://redis:6379/0
-   GRB_WLSACCESSID=your_access_id
-   GRB_WLSSECRET=your_secret
-   GRB_LICENSEID=your_license_number
-   ```
-
-4. **Run with Docker:**
-   ```bash
-   docker compose up -d --build
-   ```
-
-5. **Create your admin user and get your API token:**
-   ```bash
-   docker compose exec web python manage.py bootstrap_admin
-   ```
-   Copy the printed token — you will need it to authenticate all API requests.
-
-6. **Seed exam rooms for your organization:**
-   First get your organization's UUID from `GET /api/organizations/`, then:
-   ```bash
-   docker compose exec web python manage.py seed_rooms --org_id <your-org-uuid>
-   ```
-
-7. **Access Swagger UI:**
-   Navigate to `http://localhost:8000/api/docs/`, click **Authorize**, and enter:
-   ```
-   Token <your-token-from-step-5>
-   ```
-
-## 💡 Usage Workflow
-
-### 1. Data Ingestion
-1.  **Organization:** `POST /api/organizations/`
-2.  **Term:** `POST /api/terms/` (Status: Active)
-3.  **Upload Catalog:** `POST /api/courses/upload/` (Upload your university CSV)
-4.  **Enrollments:** `POST /api/students/` (Upload student-course mappings)
-5.  **Seed Rooms:** `python manage.py seed_rooms --org_id <uuid>` (only needed once per organization)
-6.  **Update Estimates (Demo Mode):** `POST /api/academic-units/update-estimates/` processes previous semesters to estimate cohort sizes.
-
-### 2. Optimization
-1.  **Run Solver:** `POST /api/optimize/run/`
-    *   Parameters: `term_id`, `exam_days`, `slots_per_day`, `start_hour`, `hard_threshold`, `no_back_to_back`.
-    *   Returns a `task_id` for tracking.
-    *   Limited to **3 concurrent runs per term** — returns HTTP 429 if the limit is reached.
-2.  **Monitor Progress:** Use `GET /api/optimize/history/` to see the status (PENDING, PROCESSING, OPTIMAL, INFEASIBLE).
-3.  **View Results:**
-    *   `GET /api/optimize/{id}/result/`: Full solution JSON.
-    *   `GET /api/optimize/{id}/departments/`: List of departments in the solution.
-    *   `GET /api/optimize/{id}/by-department/?dept=DEPT_NAME`: Filtered and grouped schedule for a specific department.
-
-## 🔐 Authentication
-
-All endpoints except `GET /api/status/` and `GET /api/docs/` require a token.
-
-**Get a token:**
 ```bash
-POST /api/auth/token/
-{ "username": "admin", "password": "adminpass123" }
+git clone https://github.com/haticecam/exam-scheduler.git
+cd exam-scheduler
 ```
 
-**Use it in every request:**
-```
-Authorization: Token <your-token>
+### 2. Gurobi WLS License
+
+- Log in to [Gurobi User Portal](https://portal.gurobi.com/)
+- Go to **Licenses > Web License Service (WLS)**, download your academic license
+- You will need `WLSACCESSID`, `WLSSECRET`, and `LICENSEID` for the next step
+
+### 3. Environment Configuration
+
+```bash
+cp .env.example .env
 ```
 
-To create additional users, use the Django admin at `http://localhost:8000/admin/`.
+Edit `.env`:
 
-## 🐳 Docker Commands
+```env
+SECRET_KEY=your-django-secret-key
+DEBUG=False
+ALLOWED_HOSTS=localhost,127.0.0.1
+DATABASE_URL=postgresql://admin:adminpassword@db:5432/examscheduler
+REDIS_URL=redis://redis:6379/0
+GRB_WLSACCESSID=your_access_id
+GRB_WLSSECRET=your_secret
+GRB_LICENSEID=your_license_number
+```
+
+### 4. Install frontend dependencies
+
+```bash
+cd frontend && npm install && cd ..
+```
+
+### 5. Run everything
+
+```bash
+make dev
+```
+
+This starts the backend (Docker, detached) and the frontend dev server in one command.
+
+- Frontend: `http://localhost:3000`
+- Backend API: `http://localhost:8000`
+- Swagger UI: `http://localhost:8000/api/docs/`
+
+### 6. Bootstrap admin user
+
+```bash
+docker compose exec web python manage.py bootstrap_admin
+```
+
+Copy the printed token — you need it to authenticate API requests.
+
+### 7. Seed exam rooms
+
+```bash
+docker compose exec web python manage.py seed_rooms --org_id <your-org-uuid>
+```
+
+Get your org UUID from `GET /api/organizations/` first.
+
+## Make Commands
+
+| Command | What it does |
+|---|---|
+| `make dev` | Start backend (detached) + frontend dev server |
+| `make stop` | Stop all backend containers |
+| `make logs` | Tail backend container logs |
+| `make build` | Rebuild and start backend containers |
+| `make reset` | Destroy volumes and rebuild (⚠️ deletes all data) |
+
+## Docker Commands
 
 | Situation | Command |
 |---|---|
@@ -121,11 +101,48 @@ To create additional users, use the Django admin at `http://localhost:8000/admin
 | Dockerfile / docker-compose.yml / migrations changed | `docker compose down && docker compose up --build` |
 | Reset everything including the database ⚠️ | `docker compose down -v && docker compose up --build` |
 
-> **Warning:** The `-v` flag removes the database volume. All data will be permanently lost. After a full reset, re-run `bootstrap_admin` and `seed_rooms`.
+> **Warning:** The `-v` flag removes the database volume. All data will be permanently lost. Re-run `bootstrap_admin` and `seed_rooms` after a full reset.
 
-## 🔍 Diagnostics
-If the solver status is `INFEASIBLE`, check the `result` endpoint. The `stats.diagnostics` field will contain:
-- Conflicting constraint types (Capacity, Hard Conflicts, etc.)
-- Specific recommendations on how to fix the model (e.g., "Increase exam_days to 7").
+## Authentication
 
-If the optimizer returns `"No active EXAM_ROOM resources found"`, run `seed_rooms` for your organization (see step 6 above).
+All endpoints except `GET /api/status/` and `GET /api/docs/` require a token.
+
+```bash
+POST /api/auth/token/
+{ "username": "admin", "password": "adminpass123" }
+```
+
+Use in every request:
+```
+Authorization: Token <your-token>
+```
+
+To create additional users, use the Django admin at `http://localhost:8000/admin/`.
+
+## Usage Workflow
+
+### 1. Data Ingestion
+
+1. **Organization:** `POST /api/organizations/`
+2. **Term:** `POST /api/terms/` (Status: Active)
+3. **Upload Catalog:** `POST /api/courses/upload/` (university CSV)
+4. **Enrollments:** `POST /api/students/` (student-course mappings)
+5. **Seed Rooms:** `python manage.py seed_rooms --org_id <uuid>` (once per org)
+6. **Update Estimates:** `POST /api/academic-units/update-estimates/`
+
+### 2. Optimization
+
+1. **Run Solver:** `POST /api/optimize/run/`
+   - Parameters: `term_id`, `exam_days`, `slots_per_day`, `start_hour`, `hard_threshold`, `no_back_to_back`
+   - Returns a `task_id`. Limited to **3 concurrent runs per term** (HTTP 429 if exceeded)
+2. **Monitor Progress:** `GET /api/optimize/history/` — statuses: PENDING, PROCESSING, OPTIMAL, INFEASIBLE
+3. **View Results:**
+   - `GET /api/optimize/{id}/result/` — full solution JSON
+   - `GET /api/optimize/{id}/departments/` — list of departments
+   - `GET /api/optimize/{id}/by-department/?dept=DEPT_NAME` — filtered schedule
+
+## Diagnostics
+
+If the solver returns `INFEASIBLE`, check `result.stats.diagnostics` — it lists conflicting constraint types and specific fix recommendations (e.g., "Increase exam_days to 7").
+
+If you see `"No active EXAM_ROOM resources found"`, run `seed_rooms` for your organization.
