@@ -1,13 +1,33 @@
 export const C = {
-  bg: "#0b0c14", surface: "#13141f", surfaceHover: "#1a1b28",
-  border: "#1e2035", borderLight: "#2a2c45",
-  accent: "#5b6af5", accentSoft: "#1e2147",
-  cyan: "#22d4c8", cyanSoft: "#112926",
-  text: "#e2e4f0", textMuted: "#6b6f8e", textSub: "#9699b8",
-  green: "#2fc97e", greenSoft: "#0d1f17",
-  amber: "#f0a94a", amberSoft: "#1f1708",
-  red: "#e05555", redSoft: "#1f0f0f",
-  purple: "#a67cf5", purpleSoft: "#1a1530",
+  /* Surfaces */
+  bg:           "#0e0e0e",
+  surface:      "#131313",
+  surfaceHover: "#1e1e1e",
+
+  /* Borders */
+  border:       "#363636",
+  borderLight:  "#2d2d2d",
+
+  /* Accent — orange (DESIGN.md §3) */
+  accent:     "#f97316",
+  accentSoft: "#4f2408",
+
+  /* Semantic status */
+  cyan:       "#66b3ff",
+  cyanSoft:   "#0d1a2e",
+  green:      "#4ade80",
+  greenSoft:  "#0d1f17",
+  amber:      "#fbbf24",
+  amberSoft:  "#1f1708",
+  red:        "#f87171",
+  redSoft:    "#1f0f0f",
+  purple:     "#b197fc",
+  purpleSoft: "#1a1530",
+
+  /* Text */
+  text:      "#fafaf9",
+  textSub:   "#a1a1aa",
+  textMuted: "#a1a1aa",
 };
 
-export const mono = { fontFamily: "monospace" };
+export const mono = { fontFamily: "var(--font-sans, ui-monospace, monospace)" };
