@@ -20,6 +20,7 @@ export default function OptimizerPage() {
   const [params, setParams] = useState({
     term_id: "", name: "", hard_threshold: 5, time_limit: 300,
     mip_gap: 0.10, no_back_to_back: false, exam_days: 5, slots_per_day: 10, start_hour: 8,
+    prompt: "",
   });
 
   const [runSt, setRunSt] = useState("idle");
@@ -245,6 +246,27 @@ export default function OptimizerPage() {
           </button>
 
           {submitErr && !isRunning && <ErrorBox msg={submitErr} />}
+        </Card>
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <Card style={{ padding: "24px" }}>
+          <SL>LLM PROMPT <span style={{ color: C.textMuted, fontWeight: 400 }}>(opsiyonel)</span></SL>
+          <textarea
+            style={{
+              ...iStyle,
+              resize: "vertical",
+              minHeight: 100,
+              fontFamily: "inherit",
+              lineHeight: 1.6,
+            }}
+            placeholder="Optimizer için doğal dil talimatı girin… (örn: 'Matematik sınavlarını hafta başına koy')"
+            value={params.prompt}
+            onChange={e => setParams({ ...params, prompt: e.target.value })}
+          />
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.6 }}>
+            Bu alan ileride LLM motoruna aktarılacaktır. Şu an yalnızca kaydedilmektedir.
+          </div>
         </Card>
       </div>
 
