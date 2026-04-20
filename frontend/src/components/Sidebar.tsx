@@ -1,10 +1,11 @@
 "use client";
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useFetch } from "@/lib/api";
-import { Badge } from "@/components/ui";
+import { ChevronDown, Check } from "lucide-react";
+import { useFetch, api } from "@/lib/api";
+import { Badge, Spinner } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 
 const NAV = [
@@ -72,10 +73,173 @@ const NavItem = ({ id, label, active }: NavItemProps) => {
   );
 };
 
+/* ── Term switcher ───────────────────────────────────────────────────────── */
+function TermSwitcher() {
+  const { data, refetch } = useFetch("/terms/");
+  const terms: any[] = data?.results ?? data ?? [];
+  const activeTerm = terms.find((t: any) => t.status === "Active") ?? terms[0];
+
+  const [open, setOpen] = useState(false);
+  const [switching, setSwitching] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const activate = async (term: any) => {
+    if (term.status === "Active" || switching) return;
+    setSwitching(term.id);
+    setOpen(false);
+    try {
+      await api.patch(`/terms/${term.id}/`, { status: "Active" });
+      refetch();
+    } finally {
+      setSwitching(null);
+    }
+  };
+
+  return (
+    <div style={{ padding: "12px 16px", borderBottom: "1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent)", position: "relative" }} ref={ref}>
+      <div style={{
+        fontSize: "0.6875rem",
+        fontWeight: 600,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        color: "var(--on-surface-variant)",
+        marginBottom: 6,
+      }}>
+        Aktif Dönem
+      </div>
+
+      {/* Trigger */}
+      <button
+        onClick={() => terms.length > 1 && setOpen(o => !o)}
+        style={{
+          width: "100%",
+          background: open
+            ? "var(--surface-container-high)"
+            : "var(--surface-container)",
+          border: `1px solid ${open ? "color-mix(in srgb, var(--primary) 50%, transparent)" : "color-mix(in srgb, var(--outline-variant) 60%, transparent)"}`,
+          borderRadius: 8,
+          padding: "8px 10px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          cursor: terms.length > 1 ? "pointer" : "default",
+          transition: "all 140ms ease-out",
+          gap: 8,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          {switching ? (
+            <Spinner size={13} />
+          ) : (
+            activeTerm && <Badge status={activeTerm.status} />
+          )}
+          <span style={{
+            fontSize: "0.75rem",
+            color: "var(--on-surface)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}>
+            {switching
+              ? "Geçiliyor…"
+              : activeTerm?.name ?? "Dönem yok"}
+          </span>
+        </div>
+        {terms.length > 1 && (
+          <ChevronDown
+            size={14}
+            style={{
+              color: "var(--on-surface-variant)",
+              flexShrink: 0,
+              transform: open ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "transform 140ms ease-out",
+            }}
+          />
+        )}
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div style={{
+          position: "absolute",
+          top: "calc(100% - 4px)",
+          left: 16,
+          right: 16,
+          background: "var(--surface-container)",
+          border: "1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent)",
+          borderRadius: 8,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+          zIndex: 50,
+          overflow: "hidden",
+        }}>
+          {terms.map((t: any) => {
+            const isActive = t.status === "Active";
+            return (
+              <button
+                key={t.id}
+                onClick={() => activate(t)}
+                style={{
+                  width: "100%",
+                  background: isActive ? "color-mix(in srgb, var(--primary) 8%, transparent)" : "transparent",
+                  border: "none",
+                  borderBottom: "1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent)",
+                  padding: "10px 12px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  cursor: isActive ? "default" : "pointer",
+                  textAlign: "left",
+                  transition: "background 100ms ease-out",
+                }}
+                onMouseEnter={e => {
+                  if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "var(--surface-container-high)";
+                }}
+                onMouseLeave={e => {
+                  if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{
+                    fontSize: "0.8125rem",
+                    fontWeight: isActive ? 600 : 400,
+                    color: isActive ? "var(--primary)" : "var(--on-surface)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}>
+                    {t.name}
+                  </div>
+                  {t.date_range && (
+                    <div style={{ fontSize: "0.6875rem", color: "var(--on-surface-variant)", marginTop: 2 }}>
+                      {t.date_range}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <Badge status={t.status} />
+                  {isActive && <Check size={13} style={{ color: "var(--primary)" }} />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
 export default function Sidebar() {
   const pathname = usePathname();
-  const { data: termData } = useFetch("/terms/?status=Active");
-  const activeTerm = termData?.results?.[0] ?? termData?.[0];
   const { username, logout } = useAuth();
 
   return (
@@ -107,36 +271,8 @@ export default function Sidebar() {
         </div>
       </div>
 
-      {/* Active term */}
-      <div style={{
-        padding: "12px 16px",
-        borderBottom: "1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent)",
-      }}>
-        <div style={{
-          fontSize: "0.6875rem",
-          fontWeight: 600,
-          letterSpacing: "0.12em",
-          textTransform: "uppercase",
-          color: "var(--on-surface-variant)",
-          marginBottom: 6,
-        }}>
-          Aktif Dönem
-        </div>
-        <div style={{
-          background: "var(--surface-container)",
-          border: "1px solid color-mix(in srgb, var(--outline-variant) 60%, transparent)",
-          borderRadius: 8,
-          padding: "8px 12px",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}>
-          <span style={{ fontSize: "0.75rem", color: "var(--on-surface)" }}>
-            {activeTerm?.name ?? "Yükleniyor…"}
-          </span>
-          {activeTerm && <Badge status={activeTerm.status} />}
-        </div>
-      </div>
+      {/* Term switcher */}
+      <TermSwitcher />
 
       {/* Navigation */}
       <div style={{ padding: "10px 0 20px", flex: 1 }}>
