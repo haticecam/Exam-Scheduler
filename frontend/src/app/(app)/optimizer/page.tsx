@@ -12,6 +12,26 @@ const IIS_LABELS: Record<string, string> = {
   too_many_hard_conflicts: "Hard conflict sayısı hard_threshold eşiğini aştı.",
 };
 
+type LLMChange = { code: string; value: unknown; reason: string };
+type LLMResult = {
+  success: boolean;
+  summary: string;
+  changes: LLMChange[];
+  warnings: string[];
+  proposed_params: Record<string, unknown>;
+  optimizer_kwargs: Record<string, unknown>;
+  weight_config: Record<string, unknown>;
+  error?: string;
+};
+type DiagnoseResult = {
+  success: boolean;
+  explanation: string;
+  root_causes: { cause: string; constraint_type: string; severity: string }[];
+  suggestions: { code: string; suggested_value: unknown; reason: string; impact: string; priority: number }[];
+  combined_recommendation: string;
+  error?: string;
+};
+
 export default function OptimizerPage() {
   const router = useRouter();
   const { data: termsData } = useFetch("/terms/");
@@ -28,6 +48,14 @@ export default function OptimizerPage() {
   const [iis, setIis] = useState<string[]>([]);
   const [pollSnap, setPollSnap] = useState<any>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // LLM state
+  const [llmMessage, setLlmMessage] = useState("");
+  const [llmSt, setLlmSt] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [llmResult, setLlmResult] = useState<LLMResult | null>(null);
+  const [llmErr, setLlmErr] = useState("");
+  const [diagSt, setDiagSt] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [diagResult, setDiagResult] = useState<DiagnoseResult | null>(null);
 
   const stopPoll = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
@@ -72,9 +100,75 @@ export default function OptimizerPage() {
     }
   };
 
-  const reset = () => { stopPoll(); setRunSt("idle"); setSolId(null); setPollSnap(null); setIis([]); setSubErr(""); };
-  const isRunning = runSt === "submitting" || runSt === "polling";
+  const reset = () => {
+    stopPoll(); setRunSt("idle"); setSolId(null); setPollSnap(null);
+    setIis([]); setSubErr(""); setDiagSt("idle"); setDiagResult(null);
+  };
 
+  // LLM: configure
+  const askLlm = async () => {
+    if (!llmMessage.trim()) return;
+    setLlmSt("loading"); setLlmErr(""); setLlmResult(null);
+    try {
+      const res = await api.post("/llm/configure/", { message: llmMessage });
+      setLlmResult(res);
+      setLlmSt("done");
+    } catch (e: any) {
+      setLlmErr(e.data?.error || e.message || "LLM isteği başarısız.");
+      setLlmSt("error");
+    }
+  };
+
+  // LLM: apply proposed params to the form
+  const applyToForm = () => {
+    if (!llmResult?.optimizer_kwargs) return;
+    const kw = llmResult.optimizer_kwargs as any;
+    setParams(p => ({
+      ...p,
+      ...(kw.hard_threshold !== undefined  && { hard_threshold: kw.hard_threshold }),
+      ...(kw.exam_days      !== undefined  && { exam_days: kw.exam_days }),
+      ...(kw.slots_per_day  !== undefined  && { slots_per_day: kw.slots_per_day }),
+      ...(kw.start_hour     !== undefined  && { start_hour: kw.start_hour }),
+      ...(kw.time_limit     !== undefined  && { time_limit: kw.time_limit }),
+      ...(kw.mip_gap        !== undefined  && { mip_gap: kw.mip_gap }),
+      ...(kw.no_back_to_back !== undefined && { no_back_to_back: kw.no_back_to_back }),
+    }));
+  };
+
+  // LLM: confirm → run optimizer directly
+  const applyAndRun = async () => {
+    if (!llmResult?.proposed_params || !params.term_id) return;
+    setRunSt("submitting"); setSubErr(""); setIis([]); setPollSnap(null);
+    try {
+      const res = await api.post("/llm/confirm/", {
+        term_id: params.term_id,
+        name: params.name || undefined,
+        proposed_params: llmResult.proposed_params,
+      });
+      const id = res?.solution_id || res?.id;
+      if (!id) throw new Error("Backend'den geçerli bir solution ID alınamadı.");
+      setSolId(id);
+      startPolling(id);
+    } catch (e: any) {
+      setSubErr(e.data?.error || e.message);
+      setRunSt("error");
+    }
+  };
+
+  // LLM: diagnose infeasible
+  const diagnose = async () => {
+    if (!solId) return;
+    setDiagSt("loading"); setDiagResult(null);
+    try {
+      const res = await api.post("/llm/diagnose/", { solution_id: solId });
+      setDiagResult(res);
+      setDiagSt("done");
+    } catch (e: any) {
+      setDiagSt("error");
+    }
+  };
+
+  const isRunning = runSt === "submitting" || runSt === "polling";
   const barColor = runSt === "done" ? C.green : runSt === "error" || runSt === "infeasible" ? C.red : C.accent;
 
   const iStyle = { background: "var(--surface)", border: `1px solid ${C.border}`, borderRadius: 6, padding: "9px 12px", color: C.text, ...mono, fontSize: 13, width: "100%", boxSizing: "border-box" as const };
@@ -85,6 +179,7 @@ export default function OptimizerPage() {
       <h2 style={{ fontSize: 26, fontWeight: 700, color: C.text, margin: "0 0 6px", ...mono }}>Optimizer Çalıştır</h2>
       <p style={{ color: C.textMuted, fontSize: 14, marginBottom: 24 }}>Gurobi MIP tabanlı sınav çizelgeleme motorunu yapılandırın ve çalıştırın.</p>
 
+      {/* ── Status bar ───────────────────────────────────────────── */}
       {runSt !== "idle" && (
         <Card style={{ padding: "16px 20px", marginBottom: 20, borderColor: `${barColor}55` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -113,6 +208,7 @@ export default function OptimizerPage() {
             </div>
           </div>
 
+          {/* IIS report */}
           {runSt === "infeasible" && (
             <div style={{ marginTop: 14, borderTop: `1px solid ${C.red}33`, paddingTop: 14 }}>
               <div style={{ fontSize: 10, color: C.red, ...mono, letterSpacing: "0.08em", marginBottom: 10 }}>IIS TANI RAPORU</div>
@@ -122,11 +218,180 @@ export default function OptimizerPage() {
                   <span style={{ fontSize: 13, color: C.textSub }}>{IIS_LABELS[d] || d}</span>
                 </div>
               ))}
+
+              {/* AI Diagnose button */}
+              <div style={{ marginTop: 14 }}>
+                {diagSt === "idle" && (
+                  <button
+                    onClick={diagnose}
+                    style={{ background: C.purpleSoft, color: C.purple, border: `1px solid color-mix(in srgb, ${C.purple} 35%, transparent)`, borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 600 }}
+                  >
+                    ✦  AI ile Tanı Koy
+                  </button>
+                )}
+                {diagSt === "loading" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.purple, fontSize: 13, ...mono }}>
+                    <Spinner /> AI analiz ediyor…
+                  </div>
+                )}
+                {diagSt === "done" && diagResult && (
+                  <div style={{ background: C.purpleSoft, border: `1px solid color-mix(in srgb, ${C.purple} 30%, transparent)`, borderRadius: 8, padding: "14px 16px", marginTop: 4 }}>
+                    <div style={{ fontSize: 10, color: C.purple, ...mono, letterSpacing: "0.08em", marginBottom: 8 }}>AI TANISı</div>
+                    <p style={{ fontSize: 13, color: C.text, lineHeight: 1.7, marginBottom: 12 }}>{diagResult.explanation}</p>
+                    {diagResult.suggestions.length > 0 && (
+                      <>
+                        <div style={{ fontSize: 10, color: C.textMuted, ...mono, letterSpacing: "0.08em", marginBottom: 8 }}>ÖNERİLEN DEĞİŞİKLİKLER</div>
+                        {diagResult.suggestions.slice(0, 4).map((s, i) => (
+                          <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
+                            <span style={{ color: C.purple, fontSize: 11, marginTop: 2, flexShrink: 0 }}>{s.priority}.</span>
+                            <div>
+                              <span style={{ ...mono, fontSize: 11, color: C.purple, background: `color-mix(in srgb, ${C.purple} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>{s.code}</span>
+                              <span style={{ fontSize: 12, color: C.textSub, marginLeft: 8 }}>→ {String(s.suggested_value)}</span>
+                              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{s.reason}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                    {diagResult.combined_recommendation && (
+                      <div style={{ fontSize: 12, color: C.text, borderTop: `1px solid color-mix(in srgb, ${C.purple} 20%, transparent)`, paddingTop: 10, marginTop: 10 }}>
+                        <b>Öneri:</b> {diagResult.combined_recommendation}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {diagSt === "error" && (
+                  <div style={{ fontSize: 12, color: C.red }}>AI tanısı başarısız. OPENAI_API_KEY ayarlandı mı?</div>
+                )}
+              </div>
             </div>
           )}
         </Card>
       )}
 
+      {/* ── AI Assistant panel ───────────────────────────────────── */}
+      <Card style={{ padding: "20px 24px", marginBottom: 20, borderColor: `color-mix(in srgb, ${C.cyan} 30%, transparent)` }}>
+        <SL>✦ AI ASISTAN — DOĞAL DİL İLE YAPILANDIRMA</SL>
+        <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 14, lineHeight: 1.6 }}>
+          Parametreleri doğal dilde tanımlayın. AI, istediğinizi anlayıp optimizer ayarlarına dönüştürür.
+        </p>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+          <div style={{ flex: 1 }}>
+            <textarea
+              rows={3}
+              placeholder={"Örn: Sınavları 10 güne yay, arka arkaya sınav olmasın, başlangıç saati 09:00 olsun"}
+              value={llmMessage}
+              onChange={e => setLlmMessage(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) askLlm(); }}
+              style={{
+                ...iStyle,
+                resize: "vertical",
+                minHeight: 72,
+                lineHeight: 1.6,
+              }}
+            />
+          </div>
+          <button
+            onClick={askLlm}
+            disabled={llmSt === "loading" || !llmMessage.trim()}
+            style={{
+              background: llmSt === "loading" ? C.cyanSoft : C.cyan,
+              color: llmSt === "loading" ? C.cyan : "#fff",
+              border: "none",
+              borderRadius: 8,
+              padding: "12px 20px",
+              cursor: llmSt === "loading" || !llmMessage.trim() ? "not-allowed" : "pointer",
+              ...mono,
+              fontSize: 13,
+              fontWeight: 700,
+              whiteSpace: "nowrap",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexShrink: 0,
+            }}
+          >
+            {llmSt === "loading" ? <><Spinner size={13} /> Analiz ediliyor…</> : "✦  Yapılandır"}
+          </button>
+        </div>
+        <div style={{ fontSize: 10, color: C.textMuted, marginTop: 6 }}>Ctrl+Enter ile gönder</div>
+
+        {/* LLM error */}
+        {llmSt === "error" && (
+          <div style={{ marginTop: 12 }}>
+            <ErrorBox msg={llmErr || "LLM isteği başarısız. OPENAI_API_KEY ayarlandı mı?"} />
+          </div>
+        )}
+
+        {/* LLM result */}
+        {llmSt === "done" && llmResult?.success && (
+          <div style={{
+            marginTop: 16,
+            background: C.cyanSoft,
+            border: `1px solid color-mix(in srgb, ${C.cyan} 30%, transparent)`,
+            borderRadius: 8,
+            padding: "14px 16px",
+          }}>
+            <div style={{ fontSize: 10, color: C.cyan, ...mono, letterSpacing: "0.08em", marginBottom: 8 }}>AI ÖNERİSİ</div>
+            <p style={{ fontSize: 13, color: C.text, lineHeight: 1.7, marginBottom: 12 }}>{llmResult.summary}</p>
+
+            {/* Change list */}
+            {llmResult.changes.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, color: C.textMuted, ...mono, letterSpacing: "0.08em", marginBottom: 8 }}>YAPILACAK DEĞİŞİKLİKLER</div>
+                {llmResult.changes.map((ch, i) => (
+                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
+                    <span style={{ color: C.cyan, fontSize: 12, flexShrink: 0, marginTop: 1 }}>▸</span>
+                    <div>
+                      <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>{ch.code}</span>
+                      <span style={{ fontSize: 12, color: C.text, marginLeft: 8, fontWeight: 600 }}>{String(ch.value)}</span>
+                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{ch.reason}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Warnings */}
+            {llmResult.warnings && llmResult.warnings.length > 0 && (
+              <div style={{ marginBottom: 14, background: C.amberSoft, borderRadius: 6, padding: "10px 12px" }}>
+                {llmResult.warnings.map((w, i) => (
+                  <div key={i} style={{ fontSize: 12, color: C.amber }}>⚠ {w}</div>
+                ))}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                onClick={applyToForm}
+                style={{ background: "var(--surface)", color: C.cyan, border: `1px solid color-mix(in srgb, ${C.cyan} 40%, transparent)`, borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 600 }}
+              >
+                Forma Uygula
+              </button>
+              <button
+                onClick={applyAndRun}
+                disabled={isRunning || !params.term_id}
+                style={{ background: C.cyan, color: "#fff", border: "none", borderRadius: 6, padding: "8px 16px", cursor: isRunning || !params.term_id ? "not-allowed" : "pointer", ...mono, fontSize: 12, fontWeight: 700 }}
+              >
+                {isRunning ? "Çalışıyor…" : "Uygula & Çalıştır"}
+              </button>
+              <button
+                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
+                style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}
+              >
+                Kapat
+              </button>
+            </div>
+            {!params.term_id && (
+              <div style={{ fontSize: 11, color: C.amber, marginTop: 8 }}>⚠ "Uygula & Çalıştır" için önce bir dönem seçin.</div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Parameter form ───────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
         <Card style={{ padding: "24px" }}>
           <SL>TEMEL PARAMETRELER</SL>
@@ -196,7 +461,6 @@ export default function OptimizerPage() {
               transition: "all 140ms ease-out",
             }}
           >
-            {/* Toggle pill */}
             <div style={{
               flexShrink: 0,
               marginTop: 2,

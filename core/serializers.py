@@ -58,3 +58,49 @@ class OptimizeRequestSerializer(serializers.Serializer):
 class SimulateStudentsRequestSerializer(serializers.Serializer):
     term_id = serializers.UUIDField(required=True, help_text="Term ID to simulate for.")
     academic_unit_id = serializers.UUIDField(required=False, help_text="Optional: filter to a single department.")
+
+
+# ─────────────────────────────────────────────────────────────────
+#  LLM Integration Serializers
+# ─────────────────────────────────────────────────────────────────
+
+class LLMConfigureRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/llm/configure/"""
+    message = serializers.CharField(
+        help_text="Natural language scheduling preference from the administrator. "
+                  "Example: 'Spread exams over more days and prevent back-to-back exams'"
+    )
+    term_id = serializers.UUIDField(
+        required=False,
+        help_text="Optional term ID for context."
+    )
+    conversation_history = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        help_text="Optional previous messages for multi-turn refinement. "
+                  "Each item: {role: 'user'|'assistant', content: '...'}"
+    )
+
+
+class LLMConfirmRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/llm/confirm/"""
+    term_id = serializers.UUIDField(
+        help_text="The term to run the optimization for."
+    )
+    name = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text="Label for this solution run."
+    )
+    proposed_params = serializers.DictField(
+        help_text="The proposed_params dict returned by /api/llm/configure/. "
+                  "Example: {'PARAM_EXAM_DAYS': 7, 'PARAM_NO_BACK_TO_BACK': true}"
+    )
+
+
+class LLMDiagnoseRequestSerializer(serializers.Serializer):
+    """Request body for POST /api/llm/diagnose/"""
+    solution_id = serializers.UUIDField(
+        help_text="The ID of an INFEASIBLE GeneratedSolution to diagnose."
+    )
