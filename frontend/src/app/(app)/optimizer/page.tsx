@@ -15,6 +15,7 @@ const IIS_LABELS: Record<string, string> = {
 type LLMChange = { code: string; value: unknown; reason: string };
 type LLMResult = {
   success: boolean;
+  is_scheduling_request?: boolean;
   summary: string;
   changes: LLMChange[];
   warnings: string[];
@@ -324,8 +325,34 @@ export default function OptimizerPage() {
           </div>
         )}
 
-        {/* LLM result */}
-        {llmSt === "done" && llmResult?.success && (
+        {/* LLM result — rejection (not a scheduling request) */}
+        {llmSt === "done" && llmResult?.success && llmResult.is_scheduling_request === false && (
+          <div style={{
+            marginTop: 16,
+            background: C.amberSoft,
+            border: `1px solid color-mix(in srgb, ${C.amber} 40%, transparent)`,
+            borderRadius: 8,
+            padding: "14px 16px",
+            display: "flex",
+            gap: 12,
+            alignItems: "flex-start",
+          }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>⚠</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 10, color: C.amber, ...mono, letterSpacing: "0.08em", marginBottom: 6 }}>GEÇERSİZ İSTEK</div>
+              <p style={{ fontSize: 13, color: C.text, lineHeight: 1.7, margin: 0 }}>{llmResult.summary}</p>
+            </div>
+            <button
+              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
+              style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", ...mono, fontSize: 11, flexShrink: 0 }}
+            >
+              Kapat
+            </button>
+          </div>
+        )}
+
+        {/* LLM result — normal scheduling response */}
+        {llmSt === "done" && llmResult?.success && llmResult.is_scheduling_request !== false && (
           <div style={{
             marginTop: 16,
             background: C.cyanSoft,

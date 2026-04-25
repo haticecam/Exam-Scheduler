@@ -168,6 +168,7 @@ class LLMMapperService:
         Returns:
             {
                 "success": True/False,
+                "is_scheduling_request": True/False,  # False = input was not scheduling-related
                 "changes": [...],
                 "summary": "...",
                 "warnings": [...],

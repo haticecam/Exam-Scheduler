@@ -861,6 +861,7 @@ class LLMConfigureView(APIView):
 
         return Response({
             "success": True,
+            "is_scheduling_request": result.get("is_scheduling_request", True),
             "summary": result["summary"],
             "changes": result["changes"],
             "warnings": result["warnings"],
