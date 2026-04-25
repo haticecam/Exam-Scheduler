@@ -38,14 +38,34 @@ PARAMETER_MAPPING_FUNCTION = {
         "Map the administrator's natural language preferences to concrete "
         "scheduling parameters from the constraint library. Only set parameters "
         "that the user explicitly or implicitly requested to change. "
-        "Do NOT set parameters the user didn't mention."
+        "Do NOT set parameters the user didn't mention. "
+        "If the input is not related to exam scheduling at all, set "
+        "is_scheduling_request=false and explain why in rejection_reason."
     ),
     "parameters": {
         "type": "object",
         "properties": {
+            "is_scheduling_request": {
+                "type": "boolean",
+                "description": (
+                    "Set to false if the user's input has nothing to do with "
+                    "exam scheduling (e.g. random text, unrelated questions, "
+                    "incoherent sentences). Set to true for any scheduling-related "
+                    "request, even vague ones like 'make it better'."
+                ),
+            },
+            "rejection_reason": {
+                "type": "string",
+                "description": (
+                    "Required when is_scheduling_request=false. A 1-2 sentence "
+                    "explanation in the same language as the user's input, telling "
+                    "them their message wasn't about scheduling and what kind of "
+                    "input is expected."
+                ),
+            },
             "changes": {
                 "type": "array",
-                "description": "List of parameter changes to apply.",
+                "description": "List of parameter changes to apply. Empty when is_scheduling_request=false.",
                 "items": {
                     "type": "object",
                     "properties": {
@@ -68,7 +88,8 @@ PARAMETER_MAPPING_FUNCTION = {
                 "type": "string",
                 "description": (
                     "A 1-3 sentence human-readable summary of all proposed changes, "
-                    "written for a non-technical administrator."
+                    "written for a non-technical administrator. "
+                    "Empty string when is_scheduling_request=false."
                 ),
             },
             "warnings": {
@@ -77,7 +98,7 @@ PARAMETER_MAPPING_FUNCTION = {
                 "items": {"type": "string"},
             },
         },
-        "required": ["changes", "summary"],
+        "required": ["is_scheduling_request", "changes", "summary"],
     },
 }
 
@@ -107,6 +128,11 @@ CRITICAL RULES:
 5. If the user asks for something impossible (e.g., "schedule all exams in 1 day"
    when minimum exam_days is 3), set the closest valid value and warn them.
 6. Never invent new parameter codes or constraint types.
+7. If the user's input is completely unrelated to exam scheduling (random text,
+   questions about unrelated topics, greetings with no scheduling content,
+   or incoherent sentences), set is_scheduling_request=false and provide a
+   helpful rejection_reason in the same language as the user. Do NOT set any
+   changes in this case — return an empty changes array.
 
 {library_context}
 {current_state}
@@ -209,6 +235,25 @@ class LLMMapperService:
                 "error": f"Failed to parse LLM response: {str(e)}",
             }
 
+        # Rejection: input was not scheduling-related
+        if not llm_output.get("is_scheduling_request", True):
+            rejection_reason = llm_output.get(
+                "rejection_reason",
+                "Bu mesaj sınav çizelgeleme ile ilgili görünmüyor. "
+                "Lütfen optimizer parametrelerini açıklayan bir mesaj girin.",
+            )
+            return {
+                "success": True,
+                "is_scheduling_request": False,
+                "changes": [],
+                "summary": rejection_reason,
+                "warnings": [],
+                "proposed_params": {},
+                "optimizer_kwargs": {},
+                "weight_config": {},
+                "error": None,
+            }
+
         changes = llm_output.get("changes", [])
         summary = llm_output.get("summary", "")
         warnings = llm_output.get("warnings", [])
@@ -248,6 +293,7 @@ class LLMMapperService:
 
         return {
             "success": True,
+            "is_scheduling_request": True,
             "changes": changes,
             "summary": summary,
             "warnings": warnings,
