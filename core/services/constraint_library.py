@@ -64,19 +64,20 @@ BLUEPRINT_DEFINITIONS = [
         "code": "PARAM_SLOTS_PER_DAY",
         "category": "SOLVER_PARAM",
         "description": (
-            "Number of 1-hour exam slots available each day. More slots "
-            "per day means more scheduling flexibility but longer exam days "
-            "for students."
+            "Number of 30-minute exam slots available each day. "
+            "20 slots = 10 hours of exam time. More slots means more "
+            "scheduling flexibility but longer exam days for students."
         ),
         "param_schema": {
             "type": "integer",
             "minimum": 4,
-            "maximum": 14,
-            "default": 10,
+            "maximum": 40,
+            "default": 20,
             "optimizer_kwarg": "slots_per_day",
             "examples": [
-                {"input": "Shorter exam days", "value": 6},
-                {"input": "Use the full day", "value": 12},
+                {"input": "Short exam day (5 hours)", "value": 10},
+                {"input": "Standard exam day (10 hours)", "value": 20},
+                {"input": "Long exam day (12 hours)", "value": 24},
             ],
         },
     },

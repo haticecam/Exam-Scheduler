@@ -160,8 +160,11 @@ class OptimizerService:
         conflicts = self.load_conflict_matrix()
 
         n_slots = exam_days * slots_per_day
-        slot_starts = [f"{start_hour+i:02d}:30" for i in range(slots_per_day)]
-        slot_ends   = [f"{start_hour+1+i:02d}:30" for i in range(slots_per_day)]
+        def _fmt(minutes: int) -> str:
+            return f"{minutes // 60:02d}:{minutes % 60:02d}"
+        base_min = start_hour * 60 + 30
+        slot_starts = [_fmt(base_min + i * 30) for i in range(slots_per_day)]
+        slot_ends   = [_fmt(base_min + (i + 1) * 30) for i in range(slots_per_day)]
         default_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         day_labels = [default_days[i % 7] if exam_days <= 7 else f"Day {i+1}" for i in range(exam_days)]
 
@@ -172,7 +175,9 @@ class OptimizerService:
 
         for c in C:
             hours = info[c].get("weekly_hours") or 0
-            dur = 3 if hours >= 4 else (1 if 0 < hours <= 2 else 2)
+            # Exam lengths in minutes: ≤2 weekly hours→60 min, 3→120 min, ≥4→180 min
+            # Each slot is 30 min, so multiply slot count by 2
+            dur = 6 if hours >= 4 else (4 if hours == 3 else 2)
             info[c]["duration"] = dur
 
         def valid_starts(c):
@@ -454,8 +459,8 @@ class OptimizerService:
                 "total_conflicts": len(conflicts),
                 "hard_conflict_pairs": len(hard_pairs),
                 "total_slots": n_slots,
-                "total_rooms": len(rooms),
-                "total_room_capacity_per_slot": sum(rooms.values()),
+                "total_rooms": len(ROOMS),
+                "total_room_capacity_per_slot": sum(ROOMS.values()),
                 "max_enrolled_unit": max((info[c]["enrolled_count"], info[c]["code"], info[c]["student_dept"]) for c in C) if C else None,
             },
             "iis_constraints": [],

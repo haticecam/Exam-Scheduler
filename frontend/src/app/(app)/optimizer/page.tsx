@@ -40,7 +40,8 @@ export default function OptimizerPage() {
 
   const [params, setParams] = useState({
     term_id: "", name: "", hard_threshold: 5, time_limit: 300,
-    mip_gap: 0.10, no_back_to_back: false, exam_days: 5, slots_per_day: 10, start_hour: 8,
+    mip_gap: 0.10, no_back_to_back: false, exam_days: 5, slots_per_day: 20, start_hour: 8,
+    year_ordering: false, year_order_weight: 100.0,
   });
 
   const [runSt, setRunSt] = useState("idle");
@@ -65,7 +66,7 @@ export default function OptimizerPage() {
     const tick = async () => {
       try {
         const res = await api.get(`/optimize/${id}/result/`);
-        const DONE_STATUSES = ["COMPLETED", "OPTIMAL", "FEASIBLE", "FEASIBLE (TIME LIMIT)"];
+        const DONE_STATUSES = ["COMPLETED", "OPTIMAL", "FEASIBLE", "FEASIBLE (TIME LIMIT)", "FEASIBLE_TIME_LIMIT"];
         const FAIL_STATUSES = ["FAILED", "INFEASIBLE", "ERROR"];
         const sol = res?.id ? res : res?.results?.[0] || res?.[0] || res;
         setPollSnap(sol);
@@ -96,7 +97,11 @@ export default function OptimizerPage() {
       setSolId(id);
       startPolling(id);
     } catch (e: any) {
-      setSubErr(e.data?.detail || e.data?.error || e.message);
+      const d = e.data || {};
+      const msg = d.detail || d.error ||
+        Object.entries(d).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join(" | ") ||
+        e.message;
+      setSubErr(msg);
       setRunSt("error");
     }
   };
@@ -132,7 +137,9 @@ export default function OptimizerPage() {
       ...(kw.start_hour     !== undefined  && { start_hour: kw.start_hour }),
       ...(kw.time_limit     !== undefined  && { time_limit: kw.time_limit }),
       ...(kw.mip_gap        !== undefined  && { mip_gap: kw.mip_gap }),
-      ...(kw.no_back_to_back !== undefined && { no_back_to_back: kw.no_back_to_back }),
+      ...(kw.no_back_to_back  !== undefined && { no_back_to_back: kw.no_back_to_back }),
+      ...(kw.year_ordering    !== undefined && { year_ordering: kw.year_ordering }),
+      ...(kw.year_order_weight !== undefined && { year_order_weight: kw.year_order_weight }),
     }));
   };
 
@@ -189,7 +196,7 @@ export default function OptimizerPage() {
               <div style={{ ...mono, fontSize: 13, fontWeight: 700, color: barColor }}>
                 {runSt === "submitting" && "İstek gönderiliyor…"}
                 {runSt === "polling" && `Gurobi çalışıyor`}
-                {runSt === "done" && `✓  Optimizasyon tamamlandı.`}
+                {runSt === "done" && `✓  ${["FEASIBLE_TIME_LIMIT", "FEASIBLE (TIME LIMIT)"].includes(pollSnap?.status) ? "Zaman limitinde çözüm bulundu." : "Optimizasyon tamamlandı."}`}
                 {runSt === "error" && `✕  Hata: ${submitErr || pollSnap?.error_message}`}
                 {runSt === "infeasible" && "✕  INFEASIBLE — Bu parametrelerle çözüm bulunamadı"}
               </div>
@@ -442,7 +449,7 @@ export default function OptimizerPage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
             {[
               { label: "SINAV GÜN SAYISI", key: "exam_days" },
-              { label: "GÜN BAŞI SLOT", key: "slots_per_day" },
+              { label: "GÜN BAŞI SLOT (30dk)", key: "slots_per_day" },
               { label: "BAŞLANGIÇ SAATİ", key: "start_hour" },
             ].map(f => (
               <div key={f.key}>

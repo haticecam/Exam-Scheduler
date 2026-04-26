@@ -40,18 +40,22 @@ class StudentSerializer(serializers.ModelSerializer):
 class OptimizeRequestSerializer(serializers.Serializer):
     term_id = serializers.UUIDField(help_text="Required Term ID")
     name = serializers.CharField(max_length=255, required=False, help_text="Label for this solution run (e.g. 'Fall 2025 Test 1')")
-    hard_threshold = serializers.IntegerField(default=5, min_value=1, max_value=10000, help_text="Shared student count above which two courses are hard-conflicted.")
+    hard_threshold = serializers.IntegerField(default=5, min_value=0, max_value=10000, help_text="Shared student count above which two courses are hard-conflicted.")
     time_limit = serializers.IntegerField(default=300, min_value=10, max_value=86400, help_text="Gurobi time limit in seconds.")
     mip_gap = serializers.FloatField(default=0.10, min_value=0.0, max_value=1.0, help_text="MIP gap tolerance (0.10 = 10%)")
     no_back_to_back = serializers.BooleanField(default=False, help_text="Prevent consecutive exams for same dept/year (hard constraint).")
     exam_days = serializers.IntegerField(default=5, min_value=1, max_value=60, help_text="Total exam days to spread across.")
-    slots_per_day = serializers.IntegerField(default=10, min_value=1, max_value=16, help_text="Number of 1-hour slots per day.")
+    slots_per_day = serializers.IntegerField(default=20, min_value=1, max_value=40, help_text="Number of 30-minute slots per day (20 = 10 hours).")
     start_hour = serializers.IntegerField(default=8, min_value=0, max_value=23, help_text="Exam day start hour (e.g. 8 → exams from 08:30).")
+    year_ordering = serializers.BooleanField(default=False, required=False, help_text="Softly prefer scheduling lower year-level exams earlier in the exam week.")
+    year_order_weight = serializers.FloatField(default=100.0, min_value=10.0, max_value=500.0, required=False, help_text="Strength of the year-ordering preference (10–500).")
 
     def validate(self, data):
-        if data['start_hour'] + data['slots_per_day'] > 24:
+        # Each slot is 30 min; first slot starts at start_hour:30
+        total_minutes = data['start_hour'] * 60 + 30 + data['slots_per_day'] * 30
+        if total_minutes > 24 * 60:
             raise serializers.ValidationError(
-                "start_hour + slots_per_day must not exceed 24 (not enough hours in a day)."
+                "start_hour and slots_per_day exceed 24 hours. Reduce slots_per_day or start_hour."
             )
         return data
 

@@ -585,7 +585,9 @@ class OptimizerViewSet(viewsets.ViewSet):
                 'no_back_to_back': data['no_back_to_back'],
                 'exam_days': data['exam_days'],
                 'slots_per_day': data['slots_per_day'],
-                'start_hour': data['start_hour']
+                'start_hour': data['start_hour'],
+                'year_ordering': data.get('year_ordering', False),
+                'year_order_weight': data.get('year_order_weight', 100.0),
             },
             status='PENDING'
         )
