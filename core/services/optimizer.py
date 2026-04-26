@@ -13,6 +13,25 @@ BASE_W_EE = 15.0
 YEAR_DIFF_FACTOR = {0: 20.0, 1: 10.0, 2: 3.0, 3: 1.0}
 
 
+def compute_year_bands(year_levels: list, exam_days: int) -> dict:
+    """
+    Divide exam_days into equal-width bands, one per distinct year level.
+    Returns {year_level: (day_start_inclusive, day_end_exclusive)}.
+    Returns empty dict if fewer than 2 distinct year levels.
+    """
+    levels = sorted(set(year_levels))
+    n = len(levels)
+    if n < 2:
+        return {}
+    band_size = exam_days / n
+    bands = {}
+    for i, yr in enumerate(levels):
+        day_start = int(i * band_size)
+        day_end = int((i + 1) * band_size) if i < n - 1 else exam_days
+        bands[yr] = (day_start, day_end)
+    return bands
+
+
 class OptimizerService:
     """
     Scheduling unit: (course × student's department).
@@ -126,7 +145,8 @@ class OptimizerService:
 
     def solve(self, hard_threshold: int = 5, time_limit: int = 300, mip_gap: float = 0.10,
               no_back_to_back: bool = False, exam_days: int = 5, slots_per_day: int = 10,
-              start_hour: int = 8) -> dict:
+              start_hour: int = 8, year_ordering: bool = False,
+              year_order_weight: float = 100.0) -> dict:
         try:
             import gurobipy as gp
             from gurobipy import GRB, quicksum
@@ -162,6 +182,16 @@ class OptimizerService:
         groups = defaultdict(list)
         for c in C:
             groups[(info[c]["student_dept"], info[c]["year_level"])].append(c)
+
+        year_band = {}
+        if year_ordering:
+            all_year_levels = [
+                info[c]["year_level"] for c in C
+                if info[c].get("year_level") is not None
+            ]
+            year_band = compute_year_bands(all_year_levels, exam_days)
+            if year_band:
+                logger.info(f"Year-band ordering active: {len(year_band)} bands over {exam_days} days")
 
         short = {}
         for i, c in enumerate(C):
@@ -290,9 +320,24 @@ class OptimizerService:
                     "var": z_day, "weight": SAME_DAY_W, "d": d, "dept": dept, "year": year, "desc": desc
                 })
 
+        # C. Year-Band Ordering Preference (linear penalty on existing y variables)
+        year_order_terms = []
+        if year_ordering and year_band:
+            for c in C:
+                yr = info[c].get("year_level")
+                if yr is None or yr not in year_band:
+                    continue
+                preferred_start, preferred_end = year_band[yr]
+                for s in valid_starts(c):
+                    if (c, s) not in y:  # defensive: y always contains every valid_start
+                        continue
+                    if not (preferred_start <= s // slots_per_day < preferred_end):
+                        year_order_terms.append(year_order_weight * y[(c, s)])
+
         m.setObjective(
             quicksum(cv["weight"] * cv["var"] for cv in conflict_vars) +
             quicksum(dv["weight"] * dv["var"] for dv in daily_spread_vars) +
+            (quicksum(year_order_terms) if year_order_terms else 0) +
             minimize_rooms_used,
             GRB.MINIMIZE)
         m.Params.MIPGap = mip_gap

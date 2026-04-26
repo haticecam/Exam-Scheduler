@@ -201,11 +201,11 @@ export default function OptimizerPage() {
             </div>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               {runSt === "done" && (
-                <button onClick={() => router.push("/schedule")} style={{ background: C.green, color: "#000", border: "none", borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 700 }}>
+                <button type="button" onClick={() => router.push("/schedule")} style={{ background: C.green, color: "#000", border: "none", borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 700 }}>
                   Takvimi Görüntüle →
                 </button>
               )}
-              <button onClick={reset} style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}>Sıfırla</button>
+              <button type="button" onClick={reset} style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}>Sıfırla</button>
             </div>
           </div>
 
@@ -224,6 +224,7 @@ export default function OptimizerPage() {
               <div style={{ marginTop: 14 }}>
                 {diagSt === "idle" && (
                   <button
+                    type="button"
                     onClick={diagnose}
                     style={{ background: C.purpleSoft, color: C.purple, border: `1px solid color-mix(in srgb, ${C.purple} 35%, transparent)`, borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 600 }}
                   >
@@ -294,6 +295,7 @@ export default function OptimizerPage() {
             />
           </div>
           <button
+            type="button"
             onClick={askLlm}
             disabled={llmSt === "loading" || !llmMessage.trim()}
             style={{
@@ -343,6 +345,7 @@ export default function OptimizerPage() {
               <p style={{ fontSize: 13, color: C.text, lineHeight: 1.7, margin: 0 }}>{llmResult.summary}</p>
             </div>
             <button
+              type="button"
               onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
               style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", ...mono, fontSize: 11, flexShrink: 0 }}
             >
@@ -392,12 +395,14 @@ export default function OptimizerPage() {
             {/* Action buttons */}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button
+                type="button"
                 onClick={applyToForm}
                 style={{ background: "var(--surface)", color: C.cyan, border: `1px solid color-mix(in srgb, ${C.cyan} 40%, transparent)`, borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 600 }}
               >
                 Forma Uygula
               </button>
               <button
+                type="button"
                 onClick={applyAndRun}
                 disabled={isRunning || !params.term_id}
                 style={{ background: C.cyan, color: "#fff", border: "none", borderRadius: 6, padding: "8px 16px", cursor: isRunning || !params.term_id ? "not-allowed" : "pointer", ...mono, fontSize: 12, fontWeight: 700 }}
@@ -405,6 +410,7 @@ export default function OptimizerPage() {
                 {isRunning ? "Çalışıyor…" : "Uygula & Çalıştır"}
               </button>
               <button
+                type="button"
                 onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
                 style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}
               >
@@ -488,7 +494,7 @@ export default function OptimizerPage() {
               transition: "all 140ms ease-out",
             }}
           >
-            <div style={{
+            <span style={{
               flexShrink: 0,
               marginTop: 2,
               width: 36,
@@ -496,9 +502,10 @@ export default function OptimizerPage() {
               borderRadius: 10,
               background: params.no_back_to_back ? C.accent : C.border,
               position: "relative",
+              display: "inline-block",
               transition: "background 140ms ease-out",
             }}>
-              <div style={{
+              <span style={{
                 position: "absolute",
                 top: 3,
                 left: params.no_back_to_back ? 19 : 3,
@@ -506,11 +513,12 @@ export default function OptimizerPage() {
                 height: 14,
                 borderRadius: "50%",
                 background: "#fff",
+                display: "inline-block",
                 transition: "left 140ms ease-out",
               }} />
-            </div>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+            </span>
+            <span style={{ display: "inline-block" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                 <span style={{ color: C.text, fontSize: 13, fontWeight: 600 }}>Arka Arkaya Sınav Engeli</span>
                 {params.no_back_to_back && (
                   <span style={{
@@ -526,13 +534,13 @@ export default function OptimizerPage() {
                     HARD KISIT
                   </span>
                 )}
-              </div>
-              <div style={{ fontSize: 12, color: C.textMuted, lineHeight: 1.65 }}>
+              </span>
+              <span style={{ display: "block", fontSize: 12, color: C.textMuted, lineHeight: 1.65 }}>
                 Aynı bölüm öğrencilerinin iki sınavının ardışık slotlara denk gelmesini engeller.
                 Öğrenci dostu çizelgeler üretir; ancak hard kısıt olarak uygulandığından
                 <span style={{ color: params.no_back_to_back ? C.amber : C.textMuted }}> çözüm süresi önemli ölçüde uzayabilir.</span>
-              </div>
-            </div>
+              </span>
+            </span>
           </button>
 
           {submitErr && !isRunning && <ErrorBox msg={submitErr} />}
@@ -541,6 +549,7 @@ export default function OptimizerPage() {
 
       <div style={{ marginTop: 20, display: "flex", gap: 12, alignItems: "center" }}>
         <button
+          type="button"
           onClick={submit} disabled={isRunning}
           style={{ background: isRunning ? C.accentSoft : C.accent, color: isRunning ? C.accent : "#fff", border: "none", borderRadius: 8, padding: "13px 32px", cursor: isRunning ? "not-allowed" : "pointer", ...mono, fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 10, transition: "background 0.2s" }}
         >

@@ -158,6 +158,51 @@ BLUEPRINT_DEFINITIONS = [
             ],
         },
     },
+    {
+        "code": "PARAM_YEAR_ORDERING",
+        "category": "SOLVER_PARAM",
+        "description": (
+            "When enabled, the optimizer softly prefers scheduling lower year-level "
+            "exams earlier in the exam week and higher year-level exams later. "
+            "Year 1 exams are nudged toward the first day band, year 2 toward the "
+            "second, and so on. This is a soft preference — it will not cause "
+            "infeasibility but adds a penalty whenever an exam lands outside its "
+            "preferred day band."
+        ),
+        "param_schema": {
+            "type": "boolean",
+            "default": False,
+            "optimizer_kwarg": "year_ordering",
+            "examples": [
+                {"input": "Put first-year exams at the start of the exam week", "value": True},
+                {"input": "Order exams by year level across the exam period", "value": True},
+                {"input": "Don't apply any year-based ordering", "value": False},
+            ],
+        },
+    },
+    {
+        "code": "PARAM_YEAR_ORDER_WEIGHT",
+        "category": "SOLVER_PARAM",
+        "description": (
+            "Controls how strongly the optimizer enforces year-based day ordering "
+            "when PARAM_YEAR_ORDERING is enabled. Higher values push the solver "
+            "harder to place exams in their preferred day band, at the cost of "
+            "potentially accepting more student conflicts. Lower values treat the "
+            "ordering as a gentle nudge."
+        ),
+        "param_schema": {
+            "type": "number",
+            "minimum": 10.0,
+            "maximum": 500.0,
+            "default": 100.0,
+            "optimizer_kwarg": "year_order_weight",
+            "examples": [
+                {"input": "Strict year ordering, override other preferences", "value": 400.0},
+                {"input": "Gentle year ordering, don't hurt student conflicts", "value": 30.0},
+                {"input": "Moderate year ordering preference", "value": 100.0},
+            ],
+        },
+    },
 
     # ═══════════════════════════════════════════════════════════════
     #  CATEGORY 2: SOFT CONSTRAINT WEIGHTS
