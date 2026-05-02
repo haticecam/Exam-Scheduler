@@ -39,9 +39,10 @@ export default function OptimizerPage() {
   const terms = termsData?.results || termsData || [];
 
   const [params, setParams] = useState({
-    term_id: "", name: "", hard_threshold: 5, time_limit: 300,
+    term_id: "", name: "", hard_threshold: 5, time_limit: null as number | null,
     mip_gap: 0.10, no_back_to_back: false, exam_days: 5, slots_per_day: 20, start_hour: 8,
-    year_ordering: false, year_order_weight: 100.0,
+    year_order_weight: 100.0, year_order_sequence: null as number[] | null,
+    year_order_weights: null as Record<string, number> | null,
   });
 
   const [runSt, setRunSt] = useState("idle");
@@ -58,6 +59,7 @@ export default function OptimizerPage() {
   const [llmErr, setLlmErr] = useState("");
   const [diagSt, setDiagSt] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [diagResult, setDiagResult] = useState<DiagnoseResult | null>(null);
+  const [pendingProposedParams, setPendingProposedParams] = useState<Record<string, unknown> | null>(null);
 
   const stopPoll = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
@@ -91,7 +93,10 @@ export default function OptimizerPage() {
     try {
       const { name, ...rest } = params;
       const payload = name ? { ...rest, name } : rest;
-      const res = await api.post("/optimize/run/", payload);
+      const finalPayload = pendingProposedParams
+        ? { ...payload, proposed_params: pendingProposedParams }
+        : payload;
+      const res = await api.post("/optimize/run/", finalPayload);
       const id = res?.task_id || res?.solution_id || res?.id;
       if (!id) throw new Error("Backend'den geçerli bir task/solution ID alınamadı.");
       setSolId(id);
@@ -128,6 +133,7 @@ export default function OptimizerPage() {
   // LLM: apply proposed params to the form
   const applyToForm = () => {
     if (!llmResult?.optimizer_kwargs) return;
+    setPendingProposedParams(llmResult.proposed_params ?? null);
     const kw = llmResult.optimizer_kwargs as any;
     setParams(p => ({
       ...p,
@@ -138,30 +144,12 @@ export default function OptimizerPage() {
       ...(kw.time_limit     !== undefined  && { time_limit: kw.time_limit }),
       ...(kw.mip_gap        !== undefined  && { mip_gap: kw.mip_gap }),
       ...(kw.no_back_to_back  !== undefined && { no_back_to_back: kw.no_back_to_back }),
-      ...(kw.year_ordering    !== undefined && { year_ordering: kw.year_ordering }),
-      ...(kw.year_order_weight !== undefined && { year_order_weight: kw.year_order_weight }),
+      ...(kw.year_order_weight  !== undefined && { year_order_weight: kw.year_order_weight }),
+      ...(kw.year_order_sequence !== undefined && { year_order_sequence: kw.year_order_sequence }),
+      ...(kw.year_order_weights  !== undefined && { year_order_weights: kw.year_order_weights }),
     }));
   };
 
-  // LLM: confirm → run optimizer directly
-  const applyAndRun = async () => {
-    if (!llmResult?.proposed_params || !params.term_id) return;
-    setRunSt("submitting"); setSubErr(""); setIis([]); setPollSnap(null);
-    try {
-      const res = await api.post("/llm/confirm/", {
-        term_id: params.term_id,
-        name: params.name || undefined,
-        proposed_params: llmResult.proposed_params,
-      });
-      const id = res?.solution_id || res?.id;
-      if (!id) throw new Error("Backend'den geçerli bir solution ID alınamadı.");
-      setSolId(id);
-      startPolling(id);
-    } catch (e: any) {
-      setSubErr(e.data?.error || e.message);
-      setRunSt("error");
-    }
-  };
 
   // LLM: diagnose infeasible
   const diagnose = async () => {
@@ -255,7 +243,7 @@ export default function OptimizerPage() {
                             <span style={{ color: C.purple, fontSize: 11, marginTop: 2, flexShrink: 0 }}>{s.priority}.</span>
                             <div>
                               <span style={{ ...mono, fontSize: 11, color: C.purple, background: `color-mix(in srgb, ${C.purple} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>{s.code}</span>
-                              <span style={{ fontSize: 12, color: C.textSub, marginLeft: 8 }}>→ {String(s.suggested_value)}</span>
+                              <span style={{ fontSize: 12, color: C.textSub, marginLeft: 8 }}>→ {typeof s.suggested_value === "object" && s.suggested_value !== null ? JSON.stringify(s.suggested_value) : String(s.suggested_value)}</span>
                               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{s.reason}</div>
                             </div>
                           </div>
@@ -353,7 +341,7 @@ export default function OptimizerPage() {
             </div>
             <button
               type="button"
-              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
+              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
               style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", ...mono, fontSize: 11, flexShrink: 0 }}
             >
               Kapat
@@ -382,7 +370,7 @@ export default function OptimizerPage() {
                     <span style={{ color: C.cyan, fontSize: 12, flexShrink: 0, marginTop: 1 }}>▸</span>
                     <div>
                       <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>{ch.code}</span>
-                      <span style={{ fontSize: 12, color: C.text, marginLeft: 8, fontWeight: 600 }}>{String(ch.value)}</span>
+                      <span style={{ fontSize: 12, color: C.text, marginLeft: 8, fontWeight: 600 }}>{typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}</span>
                       <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{ch.reason}</div>
                     </div>
                   </div>
@@ -410,23 +398,12 @@ export default function OptimizerPage() {
               </button>
               <button
                 type="button"
-                onClick={applyAndRun}
-                disabled={isRunning || !params.term_id}
-                style={{ background: C.cyan, color: "#fff", border: "none", borderRadius: 6, padding: "8px 16px", cursor: isRunning || !params.term_id ? "not-allowed" : "pointer", ...mono, fontSize: 12, fontWeight: 700 }}
-              >
-                {isRunning ? "Çalışıyor…" : "Uygula & Çalıştır"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
+                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
                 style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}
               >
                 Kapat
               </button>
             </div>
-            {!params.term_id && (
-              <div style={{ fontSize: 11, color: C.amber, marginTop: 8 }}>⚠ "Uygula & Çalıştır" için önce bir dönem seçin.</div>
-            )}
           </div>
         )}
       </Card>

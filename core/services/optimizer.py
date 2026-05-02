@@ -3,6 +3,7 @@ from django.db import connection
 import logging
 import os
 import datetime
+import time
 from core.models import Resource, Organization
 
 logger = logging.getLogger(__name__)
@@ -13,23 +14,45 @@ BASE_W_EE = 15.0
 YEAR_DIFF_FACTOR = {0: 20.0, 1: 10.0, 2: 3.0, 3: 1.0}
 
 
-def compute_year_bands(year_levels: list, exam_days: int) -> dict:
+def compute_year_bands(year_levels: list, exam_days: int, ordered_sequence: list = None) -> dict:
     """
     Divide exam_days into equal-width bands, one per distinct year level.
     Returns {year_level: (day_start_inclusive, day_end_exclusive)}.
     Returns empty dict if fewer than 2 distinct year levels.
+
+    If ordered_sequence is given, assigns bands in that explicit order (first item
+    gets the earliest band). Year levels present in year_levels but absent from
+    ordered_sequence are appended in ascending order after the listed ones.
     """
-    levels = sorted(set(year_levels))
-    n = len(levels)
-    if n < 2:
-        return {}
-    band_size = exam_days / n
-    bands = {}
-    for i, yr in enumerate(levels):
-        day_start = int(i * band_size)
-        day_end = int((i + 1) * band_size) if i < n - 1 else exam_days
-        bands[yr] = (day_start, day_end)
-    return bands
+    all_levels = set(year_levels)
+    if ordered_sequence:
+        # Only pin listed years to specific bands. Unlisted years get no band
+        # entry and are left completely free for the optimizer to place optimally.
+        # Band size is derived from the total year count so widths stay proportional.
+        listed = [yr for yr in ordered_sequence if yr in all_levels]
+        if not listed:
+            return {}
+        n_total = len(all_levels)
+        band_size = exam_days / n_total
+        all_listed = len(listed) == n_total
+        bands = {}
+        for i, yr in enumerate(listed):
+            day_start = int(i * band_size)
+            day_end = exam_days if (all_listed and i == len(listed) - 1) else int((i + 1) * band_size)
+            bands[yr] = (day_start, day_end)
+        return bands
+    else:
+        levels = sorted(all_levels)
+        n = len(levels)
+        if n < 2:
+            return {}
+        band_size = exam_days / n
+        bands = {}
+        for i, yr in enumerate(levels):
+            day_start = int(i * band_size)
+            day_end = int((i + 1) * band_size) if i < n - 1 else exam_days
+            bands[yr] = (day_start, day_end)
+        return bands
 
 
 class OptimizerService:
@@ -143,15 +166,23 @@ class OptimizerService:
                 conflict_dict[pair] = max(conflict_dict.get(pair, 0), int(r["shared"]))
             return conflict_dict
 
-    def solve(self, hard_threshold: int = 5, time_limit: int = 300, mip_gap: float = 0.10,
+    def solve(self, hard_threshold: int = 5, time_limit: int = None, mip_gap: float = 0.10,
               no_back_to_back: bool = False, exam_days: int = 5, slots_per_day: int = 10,
-              start_hour: int = 8, year_ordering: bool = False,
-              year_order_weight: float = 100.0) -> dict:
+              start_hour: int = 8, year_order_weight: float = 100.0,
+              year_order_sequence: list = None, year_order_weights: dict = None,
+              weight_config: dict = None) -> dict:
         try:
             import gurobipy as gp
             from gurobipy import GRB, quicksum
         except ImportError:
             raise Exception("gurobipy not found. Install gurobipy and configure a license.")
+
+        wc = weight_config or {}
+        w_mm = wc.get("BASE_W_MM", BASE_W_MM)
+        w_me = wc.get("BASE_W_ME", BASE_W_ME)
+        w_ee = wc.get("BASE_W_EE", BASE_W_EE)
+        raw_ydf = wc.get("YEAR_DIFF_FACTOR", YEAR_DIFF_FACTOR)
+        year_diff_factor = {int(k): v for k, v in raw_ydf.items()}
 
         ROOMS = self.load_rooms()
 
@@ -189,14 +220,14 @@ class OptimizerService:
             groups[(info[c]["student_dept"], info[c]["year_level"])].append(c)
 
         year_band = {}
-        if year_ordering:
+        if year_order_sequence:
             all_year_levels = [
                 info[c]["year_level"] for c in C
                 if info[c].get("year_level") is not None
             ]
-            year_band = compute_year_bands(all_year_levels, exam_days)
+            year_band = compute_year_bands(all_year_levels, exam_days, ordered_sequence=year_order_sequence)
             if year_band:
-                logger.info(f"Year-band ordering active: {len(year_band)} bands over {exam_days} days")
+                logger.info(f"Year-band ordering active: {len(year_band)} bands over {exam_days} days, sequence={year_order_sequence}")
 
         short = {}
         for i, c in enumerate(C):
@@ -215,6 +246,7 @@ class OptimizerService:
         env.setParam("OutputFlag", 0)
         env.start()
         m = gp.Model("exam_scheduling", env=env)
+        t_build_start = time.perf_counter()
 
         y = {}
         for c in C:
@@ -291,9 +323,9 @@ class OptimizerService:
             yr_a, yr_b = info[ua]["year_level"], info[ub]["year_level"]
 
             # Base weight for overlap
-            base = (BASE_W_MM if req_a == req_b == "COMPULSORY"
-                    else (BASE_W_ME if "COMPULSORY" in (req_a, req_b) else BASE_W_EE))
-            w = base * YEAR_DIFF_FACTOR.get(abs(yr_a - yr_b), 0.5) * (shared / hard_threshold)
+            base = (w_mm if req_a == req_b == "COMPULSORY"
+                    else (w_me if "COMPULSORY" in (req_a, req_b) else w_ee))
+            w = base * year_diff_factor.get(abs(yr_a - yr_b), 0.5) * (shared / hard_threshold)
 
             for t in range(n_slots):
                 z = m.addVar(vtype=GRB.BINARY, name=f"z[{short[ua]},{short[ub]},{t}]")
@@ -327,17 +359,19 @@ class OptimizerService:
 
         # C. Year-Band Ordering Preference (linear penalty on existing y variables)
         year_order_terms = []
-        if year_ordering and year_band:
+        if year_band:
+            effective_weights = {int(k): v for k, v in year_order_weights.items()} if year_order_weights else {}
             for c in C:
                 yr = info[c].get("year_level")
                 if yr is None or yr not in year_band:
                     continue
+                weight = effective_weights.get(yr, year_order_weight)
                 preferred_start, preferred_end = year_band[yr]
                 for s in valid_starts(c):
                     if (c, s) not in y:  # defensive: y always contains every valid_start
                         continue
                     if not (preferred_start <= s // slots_per_day < preferred_end):
-                        year_order_terms.append(year_order_weight * y[(c, s)])
+                        year_order_terms.append(weight * y[(c, s)])
 
         m.setObjective(
             quicksum(cv["weight"] * cv["var"] for cv in conflict_vars) +
@@ -348,9 +382,17 @@ class OptimizerService:
         m.Params.MIPGap = mip_gap
         m.Params.MIPFocus = 1
         m.Params.NoRelHeurTime = 120
-        m.Params.TimeLimit = time_limit
+        t_build_end = time.perf_counter()
+        build_time = round(t_build_end - t_build_start, 2)
+        logger.info(f"Model build complete in {build_time}s — {m.NumVars} vars, {m.NumConstrs} constraints")
 
+        if time_limit is not None:
+            m.Params.TimeLimit = time_limit
+
+        t_solve_start = time.perf_counter()
         m.optimize()
+        t_solve_end = time.perf_counter()
+        solve_time = round(t_solve_end - t_solve_start, 2)
 
         if m.SolCount == 0:
             return self._build_infeasible_result(m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS)
@@ -447,6 +489,10 @@ class OptimizerService:
                 "total_penalty": round(total_penalty, 2),
                 "mip_gap": round(m.MIPGap * 100, 2) if hasattr(m, "MIPGap") else None,
                 "runtime_s": round(m.Runtime, 1) if hasattr(m, "Runtime") else None,
+                "build_time_s": build_time,
+                "solve_time_s": solve_time,
+                "num_vars": m.NumVars,
+                "num_constraints": m.NumConstrs,
             },
             "status": status_map.get(m.Status, f"status_{m.Status}"),
         }

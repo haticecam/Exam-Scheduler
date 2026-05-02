@@ -119,6 +119,10 @@ def _build_system_prompt(current_params: dict = None) -> str:
 Your job is to translate natural language administrator preferences into
 concrete scheduling parameters.
 
+LANGUAGE RULE: All human-readable text you write (summary, reason fields,
+warnings, rejection_reason) MUST be in Turkish, regardless of the language
+the user writes in.
+
 CRITICAL RULES:
 1. You can ONLY use parameter codes from the constraint library below.
 2. You MUST respect the type, minimum, and maximum for each parameter.

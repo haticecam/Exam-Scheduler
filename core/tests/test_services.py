@@ -104,15 +104,6 @@ def test_demo_updater_skips_graduation_courses(org):
 
 class YearOrderingBlueprintTests(TestCase):
 
-    def test_param_year_ordering_in_library(self):
-        from core.services.constraint_library import get_blueprint_map
-        bp = get_blueprint_map()
-        self.assertIn("PARAM_YEAR_ORDERING", bp)
-        schema = bp["PARAM_YEAR_ORDERING"]["param_schema"]
-        self.assertEqual(schema["type"], "boolean")
-        self.assertFalse(schema["default"])
-        self.assertEqual(schema["optimizer_kwarg"], "year_ordering")
-
     def test_weight_year_order_in_library(self):
         from core.services.constraint_library import get_blueprint_map
         bp = get_blueprint_map()
@@ -124,12 +115,14 @@ class YearOrderingBlueprintTests(TestCase):
         self.assertEqual(schema["default"], 100.0)
         self.assertEqual(schema["optimizer_kwarg"], "year_order_weight")
 
-    def test_year_ordering_validation_accepts_boolean(self):
-        from core.services.constraint_library import validate_parameter
-        ok, err = validate_parameter("PARAM_YEAR_ORDERING", True)
-        self.assertTrue(ok, err)
-        ok, err = validate_parameter("PARAM_YEAR_ORDERING", False)
-        self.assertTrue(ok, err)
+    def test_year_order_sequence_in_library(self):
+        from core.services.constraint_library import get_blueprint_map
+        bp = get_blueprint_map()
+        self.assertIn("PARAM_YEAR_ORDER_SEQUENCE", bp)
+        schema = bp["PARAM_YEAR_ORDER_SEQUENCE"]["param_schema"]
+        self.assertEqual(schema["type"], "array")
+        self.assertIsNone(schema["default"])
+        self.assertEqual(schema["optimizer_kwarg"], "year_order_sequence")
 
     def test_weight_year_order_validation_rejects_out_of_range(self):
         from core.services.constraint_library import validate_parameter
@@ -142,28 +135,35 @@ class YearOrderingBlueprintTests(TestCase):
         ok, _ = validate_parameter("PARAM_YEAR_ORDER_WEIGHT", 500.0)
         self.assertTrue(ok)
 
-    def test_build_optimizer_kwargs_includes_year_ordering(self):
+    def test_year_order_sequence_validation_accepts_list(self):
+        from core.services.constraint_library import validate_parameter
+        ok, err = validate_parameter("PARAM_YEAR_ORDER_SEQUENCE", [4, 1])
+        self.assertTrue(ok, err)
+
+    def test_build_optimizer_kwargs_includes_sequence(self):
         from core.services.constraint_library import build_optimizer_kwargs
         kwargs = build_optimizer_kwargs({
-            "PARAM_YEAR_ORDERING": True,
+            "PARAM_YEAR_ORDER_SEQUENCE": [4, 1],
             "PARAM_YEAR_ORDER_WEIGHT": 200.0,
         })
-        self.assertTrue(kwargs["year_ordering"])
+        self.assertEqual(kwargs["year_order_sequence"], [4, 1])
         self.assertEqual(kwargs["year_order_weight"], 200.0)
 
-    def test_defaults_include_year_ordering(self):
+    def test_defaults_include_year_order_weight(self):
         from core.services.constraint_library import get_optimizer_defaults
         defaults = get_optimizer_defaults()
-        self.assertIn("year_ordering", defaults)
-        self.assertFalse(defaults["year_ordering"])
+        self.assertNotIn("year_ordering", defaults)
         self.assertIn("year_order_weight", defaults)
         self.assertEqual(defaults["year_order_weight"], 100.0)
+        self.assertIn("year_order_sequence", defaults)
+        self.assertIsNone(defaults["year_order_sequence"])
 
-    def test_llm_context_includes_year_ordering(self):
+    def test_llm_context_includes_year_order_params(self):
         from core.services.constraint_library import generate_llm_context
         ctx = generate_llm_context()
-        self.assertIn("PARAM_YEAR_ORDERING", ctx)
+        self.assertNotIn("PARAM_YEAR_ORDERING", ctx)
         self.assertIn("PARAM_YEAR_ORDER_WEIGHT", ctx)
+        self.assertIn("PARAM_YEAR_ORDER_SEQUENCE", ctx)
 
 
 class YearBandComputationTests(TestCase):

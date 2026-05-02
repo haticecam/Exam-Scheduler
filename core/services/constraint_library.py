@@ -124,18 +124,22 @@ BLUEPRINT_DEFINITIONS = [
         "code": "PARAM_TIME_LIMIT",
         "category": "SOLVER_PARAM",
         "description": (
-            "Maximum seconds the Gurobi solver is allowed to run. Longer "
-            "limits may find better solutions but take more time."
+            "Maximum seconds the Gurobi solver is allowed to run. "
+            "Set to null to remove the time limit and let Gurobi run until "
+            "it finds the optimal solution. Use null only for large problems "
+            "where you are willing to wait as long as needed."
         ),
         "param_schema": {
             "type": "integer",
             "minimum": 60,
-            "maximum": 600,
-            "default": 300,
+            "maximum": 86400,
+            "default": None,
             "optimizer_kwarg": "time_limit",
             "examples": [
                 {"input": "Give the solver more time for a better result", "value": 600},
                 {"input": "I need a quick result", "value": 120},
+                {"input": "Run until optimal, no time limit", "value": None},
+                {"input": "Let it run as long as it needs", "value": None},
             ],
         },
     },
@@ -160,28 +164,6 @@ BLUEPRINT_DEFINITIONS = [
         },
     },
     {
-        "code": "PARAM_YEAR_ORDERING",
-        "category": "SOLVER_PARAM",
-        "description": (
-            "When enabled, the optimizer softly prefers scheduling lower year-level "
-            "exams earlier in the exam week and higher year-level exams later. "
-            "Year 1 exams are nudged toward the first day band, year 2 toward the "
-            "second, and so on. This is a soft preference — it will not cause "
-            "infeasibility but adds a penalty whenever an exam lands outside its "
-            "preferred day band."
-        ),
-        "param_schema": {
-            "type": "boolean",
-            "default": False,
-            "optimizer_kwarg": "year_ordering",
-            "examples": [
-                {"input": "Put first-year exams at the start of the exam week", "value": True},
-                {"input": "Order exams by year level across the exam period", "value": True},
-                {"input": "Don't apply any year-based ordering", "value": False},
-            ],
-        },
-    },
-    {
         "code": "PARAM_YEAR_ORDER_WEIGHT",
         "category": "SOLVER_PARAM",
         "description": (
@@ -201,6 +183,61 @@ BLUEPRINT_DEFINITIONS = [
                 {"input": "Strict year ordering, override other preferences", "value": 400.0},
                 {"input": "Gentle year ordering, don't hurt student conflicts", "value": 30.0},
                 {"input": "Moderate year ordering preference", "value": 100.0},
+            ],
+        },
+    },
+    {
+        "code": "PARAM_YEAR_ORDER_SEQUENCE",
+        "category": "SOLVER_PARAM",
+        "description": (
+            "Specifies which year levels to pull toward the start of the exam period, "
+            "in priority order. Only list the years you explicitly want to pin early — "
+            "unlisted years are left completely free for the optimizer to place wherever "
+            "best reduces conflicts. Do NOT list a year just to push it to the end; "
+            "simply omit it and the optimizer will handle it freely. "
+            "Examples: [4] pins 4th-year exams early and leaves all others free. "
+            "[4, 1] pins 4th-year earliest, then 1st-year, and leaves the rest free. "
+            "Only list multiple years when the user cares about their relative order."
+        ),
+        "param_schema": {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 1, "maximum": 10},
+            "default": None,
+            "optimizer_kwarg": "year_order_sequence",
+            "examples": [
+                {"input": "4th year exams early, then 1st year exams early", "value": [4, 1]},
+                {"input": "Schedule graduating students first", "value": [4]},
+                {"input": "1st year exams first, 4th year exams at the end", "value": [1]},
+                {"input": "Put 1st year at the start, leave others to the optimizer", "value": [1]},
+                {"input": "4th year first then 1st year then the rest", "value": [4, 1]},
+            ],
+        },
+    },
+
+    {
+        "code": "PARAM_YEAR_ORDER_WEIGHTS",
+        "category": "SOLVER_PARAM",
+        "description": (
+            "Per-year-level penalty weights for ordering. Keys are year level numbers "
+            "(as strings), values are the penalty weight for that year. "
+            "For year levels not listed, the global PARAM_YEAR_ORDER_WEIGHT is used as "
+            "fallback. Use a high value (e.g. 200) to strongly enforce early scheduling "
+            "for a year, and a low value (e.g. 30) to apply only a gentle nudge without "
+            "sacrificing that year's conflict quality."
+        ),
+        "param_schema": {
+            "type": "object",
+            "default": None,
+            "optimizer_kwarg": "year_order_weights",
+            "examples": [
+                {
+                    "input": "Strongly enforce 1st year early, gently nudge 4th year later",
+                    "value": {"1": 200, "4": 30},
+                },
+                {
+                    "input": "Focus scheduling priority on graduating students",
+                    "value": {"4": 300},
+                },
             ],
         },
     },
@@ -320,34 +357,6 @@ BLUEPRINT_DEFINITIONS = [
             ],
         },
     },
-    {
-        "code": "SCOPE_YEAR_PRIORITY",
-        "category": "SCOPE_FILTER",
-        "description": (
-            "Increase soft-constraint penalties for a specific year level, "
-            "making the optimizer prioritize conflict-free schedules for "
-            "that year. Useful for protecting 1st-year or graduating students."
-        ),
-        "param_schema": {
-            "type": "object",
-            "properties": {
-                "year_level": {"type": "integer", "minimum": 1, "maximum": 6},
-                "priority_multiplier": {
-                    "type": "number",
-                    "minimum": 1.0,
-                    "maximum": 5.0,
-                    "default": 2.0,
-                    "description": "Multiply penalties for this year by this factor",
-                },
-            },
-            "required": ["year_level"],
-            "scope_type": "year",
-            "examples": [
-                {"input": "First-year students need a fair schedule", "value": {"year_level": 1, "priority_multiplier": 2.5}},
-                {"input": "Prioritize graduating students", "value": {"year_level": 4, "priority_multiplier": 3.0}},
-            ],
-        },
-    },
 ]
 
 
@@ -398,6 +407,7 @@ def validate_parameter(code: str, value) -> tuple:
         "number": (int, float),
         "boolean": bool,
         "object": dict,
+        "array": list,
     }
     expected_python_type = type_map.get(expected_type)
     if expected_python_type and not isinstance(value, expected_python_type):
@@ -494,7 +504,14 @@ def generate_llm_context() -> str:
             schema = bp["param_schema"]
             lines.append(f"### {bp['code']}")
             lines.append(f"  Description: {bp['description']}")
-            lines.append(f"  Type: {schema['type']}")
+            if schema["type"] == "array" and "items" in schema:
+                items = schema["items"]
+                item_range = ""
+                if "minimum" in items and "maximum" in items:
+                    item_range = f", range {items['minimum']}–{items['maximum']}"
+                lines.append(f"  Type: array of {items.get('type', 'values')}{item_range}")
+            else:
+                lines.append(f"  Type: {schema['type']}")
             if "minimum" in schema:
                 lines.append(f"  Range: {schema['minimum']} – {schema['maximum']}")
             if "default" in schema:

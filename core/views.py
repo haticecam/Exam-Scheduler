@@ -575,6 +575,12 @@ class OptimizerViewSet(viewsets.ViewSet):
                 status=status.HTTP_429_TOO_MANY_REQUESTS
             )
 
+        proposed_params = data.get('proposed_params') or {}
+        weight_config = None
+        if proposed_params:
+            from .services.constraint_library import build_weight_config
+            weight_config = build_weight_config(proposed_params)
+
         solution = GeneratedSolution.objects.create(
             term_id=term_id,
             name=data.get('name', f"Gen-{datetime.date.today()}"),
@@ -586,8 +592,11 @@ class OptimizerViewSet(viewsets.ViewSet):
                 'exam_days': data['exam_days'],
                 'slots_per_day': data['slots_per_day'],
                 'start_hour': data['start_hour'],
-                'year_ordering': data.get('year_ordering', False),
                 'year_order_weight': data.get('year_order_weight', 100.0),
+                'year_order_sequence': data.get('year_order_sequence', None),
+                'year_order_weights': data.get('year_order_weights', None),
+                'weight_config': weight_config,
+                'llm_proposed_params': proposed_params or None,
             },
             status='PENDING'
         )

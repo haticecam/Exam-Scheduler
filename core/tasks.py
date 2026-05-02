@@ -52,14 +52,16 @@ def run_optimizer_task(self, solution_id: str):
 
         result = svc.solve(
             hard_threshold=params.get('hard_threshold', 5),
-            time_limit=params.get('time_limit', 300),
+            time_limit=params.get('time_limit', None),
             mip_gap=params.get('mip_gap', 0.10),
             no_back_to_back=params.get('no_back_to_back', False),
             exam_days=params.get('exam_days', 5),
             slots_per_day=params.get('slots_per_day', 10),
             start_hour=params.get('start_hour', 8),
-            year_ordering=params.get('year_ordering', False),
             year_order_weight=params.get('year_order_weight', 100.0),
+            year_order_sequence=params.get('year_order_sequence', None),
+            year_order_weights=params.get('year_order_weights', None),
+            weight_config=params.get('weight_config', None),
         )
 
         raw_status = result.get('status', 'completed')

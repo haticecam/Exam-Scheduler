@@ -41,14 +41,16 @@ class OptimizeRequestSerializer(serializers.Serializer):
     term_id = serializers.UUIDField(help_text="Required Term ID")
     name = serializers.CharField(max_length=255, required=False, help_text="Label for this solution run (e.g. 'Fall 2025 Test 1')")
     hard_threshold = serializers.IntegerField(default=5, min_value=0, max_value=10000, help_text="Shared student count above which two courses are hard-conflicted.")
-    time_limit = serializers.IntegerField(default=300, min_value=10, max_value=86400, help_text="Gurobi time limit in seconds.")
+    time_limit = serializers.IntegerField(default=None, min_value=10, max_value=86400, allow_null=True, required=False, help_text="Gurobi time limit in seconds. Omit or set null for no limit.")
     mip_gap = serializers.FloatField(default=0.10, min_value=0.0, max_value=1.0, help_text="MIP gap tolerance (0.10 = 10%)")
     no_back_to_back = serializers.BooleanField(default=False, help_text="Prevent consecutive exams for same dept/year (hard constraint).")
     exam_days = serializers.IntegerField(default=5, min_value=1, max_value=60, help_text="Total exam days to spread across.")
     slots_per_day = serializers.IntegerField(default=20, min_value=1, max_value=40, help_text="Number of 30-minute slots per day (20 = 10 hours).")
     start_hour = serializers.IntegerField(default=8, min_value=0, max_value=23, help_text="Exam day start hour (e.g. 8 → exams from 08:30).")
-    year_ordering = serializers.BooleanField(default=False, required=False, help_text="Softly prefer scheduling lower year-level exams earlier in the exam week.")
     year_order_weight = serializers.FloatField(default=100.0, min_value=10.0, max_value=500.0, required=False, help_text="Strength of the year-ordering preference (10–500).")
+    year_order_sequence = serializers.ListField(child=serializers.IntegerField(min_value=1, max_value=10), required=False, allow_null=True, default=None, help_text="Year levels in desired scheduling order, earliest first (e.g. [4,1] puts 4th year exams first).")
+    year_order_weights = serializers.DictField(child=serializers.FloatField(min_value=10.0, max_value=500.0), required=False, allow_null=True, default=None, help_text="Per-year penalty weights as {year_level: weight}. Falls back to year_order_weight for unlisted years.")
+    proposed_params = serializers.DictField(required=False, allow_null=True, default=None, help_text="Raw LLM proposed_params (blueprint code → value). Used to derive weight_config and other non-form LLM suggestions.")
 
     def validate(self, data):
         # Each slot is 30 min; first slot starts at start_hour:30

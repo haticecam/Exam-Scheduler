@@ -116,6 +116,10 @@ def _build_diagnosis_prompt(diagnostics: dict, parameters: dict) -> str:
 The Gurobi MILP solver has returned INFEASIBLE — meaning it could not find
 any valid exam schedule with the given constraints and parameters.
 
+LANGUAGE RULE: All human-readable text you write (explanation, cause,
+reason, impact, combined_recommendation) MUST be in Turkish, regardless
+of the language of any input data.
+
 Your job is to:
 1. Analyze the IIS (Irreducible Inconsistent Subsystem) diagnostics
 2. Explain the problem in plain, non-technical English
