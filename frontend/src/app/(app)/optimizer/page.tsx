@@ -292,6 +292,7 @@ export default function OptimizerPage() {
           <button
             type="button"
             onClick={askLlm}
+            suppressHydrationWarning
             disabled={llmSt === "loading" || !llmMessage.trim()}
             style={{
               background: llmSt === "loading" ? C.cyanSoft : C.cyan,
@@ -449,8 +450,8 @@ export default function OptimizerPage() {
           <SL>SOLVER AYARLARI (GUROBI)</SL>
           <div>
             <label style={lStyle}>ZAMAN LİMİTİ (saniye)</label>
-            <input style={iStyle} type="number" value={params.time_limit} onChange={e => setParams({ ...params, time_limit: +e.target.value })} />
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · varsayılan 300 sn</div>
+            <input style={iStyle} type="number" placeholder="Sınır yok" value={params.time_limit ?? ""} onChange={e => setParams({ ...params, time_limit: e.target.value === "" ? null : +e.target.value })} />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · boş bırakılırsa sınır uygulanmaz</div>
           </div>
           <div>
             <label style={lStyle}>MIP GAP TOLERANSI</label>
