@@ -39,7 +39,7 @@ export default function OptimizerPage() {
   const terms = termsData?.results || termsData || [];
 
   const [params, setParams] = useState({
-    term_id: "", name: "", hard_threshold: 5, time_limit: null as number | null,
+    term_id: "", name: "", hard_threshold: 5, time_limit: 600,
     mip_gap: 0.10, no_back_to_back: false, exam_days: 5, slots_per_day: 20, start_hour: 8,
     year_order_weight: 100.0, year_order_sequence: null as number[] | null,
     year_order_weights: null as Record<string, number> | null,
@@ -450,8 +450,8 @@ export default function OptimizerPage() {
           <SL>SOLVER AYARLARI (GUROBI)</SL>
           <div>
             <label style={lStyle}>ZAMAN LİMİTİ (saniye)</label>
-            <input style={iStyle} type="number" placeholder="Sınır yok" value={params.time_limit ?? ""} onChange={e => setParams({ ...params, time_limit: e.target.value === "" ? null : +e.target.value })} />
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · boş bırakılırsa sınır uygulanmaz</div>
+            <input style={iStyle} type="number" min={300} max={900} value={params.time_limit} onChange={e => setParams({ ...params, time_limit: Math.min(900, Math.max(300, +e.target.value)) })} />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · min 300s (5 dk) · max 900s (15 dk)</div>
           </div>
           <div>
             <label style={lStyle}>MIP GAP TOLERANSI</label>
