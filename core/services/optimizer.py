@@ -167,7 +167,8 @@ class OptimizerService:
             return conflict_dict
 
     def solve(self, hard_threshold: int = 5, time_limit: int = None, mip_gap: float = 0.10,
-              no_back_to_back: bool = False, exam_days: int = 5, slots_per_day: int = 10,
+              no_back_to_back: bool = False, no_back_to_back_depts: list = None,
+              exam_days: int = 5, slots_per_day: int = 10,
               start_hour: int = 8, year_order_weight: float = 100.0,
               year_order_sequence: list = None, year_order_weights: dict = None,
               weight_config: dict = None) -> dict:
@@ -313,6 +314,21 @@ class OptimizerService:
                         m.addConstr(quicksum(ending) + quicksum(starting) <= 1,
                                     name=f"no_btb[{dept[:8]},{year},{t}]")
 
+        if no_back_to_back_depts:
+            for (dept, year), group_courses in groups.items():
+                if dept not in no_back_to_back_depts:
+                    continue
+                for t in range(1, n_slots):
+                    if t % slots_per_day == 0:
+                        continue
+                    ending = [y[(c, t - info[c]["duration"])]
+                              for c in group_courses if (c, t - info[c]["duration"]) in y]
+                    starting = [y[(c, t)]
+                                for c in group_courses if (c, t) in y]
+                    if ending and starting:
+                        m.addConstr(quicksum(ending) + quicksum(starting) <= 1,
+                                    name=f"no_btb_dept[{dept[:8]},{year},{t}]")
+
         conflict_vars = []
         # A. Student Overlap Penalty (Same slot overlap)
         for (ua, ub), shared in conflicts.items():
@@ -395,7 +411,7 @@ class OptimizerService:
         solve_time = round(t_solve_end - t_solve_start, 2)
 
         if m.SolCount == 0:
-            return self._build_infeasible_result(m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS)
+            return self._build_infeasible_result(m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS, build_time, solve_time)
 
         schedule = []
         for c in info:
@@ -497,7 +513,7 @@ class OptimizerService:
             "status": status_map.get(m.Status, f"status_{m.Status}"),
         }
 
-    def _build_infeasible_result(self, m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS):
+    def _build_infeasible_result(self, m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS, build_time=None, solve_time=None):
         diagnostics = {
             "summary": "Model infeasible. Conflicting constraint analysis below.",
             "model_stats": {
@@ -568,7 +584,7 @@ class OptimizerService:
 
         return {
             "schedule": [], "penalties": [],
-            "stats": {"scheduling_units": len(info), "conflicts": len(conflicts), "obj_value": None, "total_penalty": 0},
+            "stats": {"scheduling_units": len(info), "conflicts": len(conflicts), "obj_value": None, "total_penalty": 0, "build_time_s": build_time, "solve_time_s": solve_time},
             "diagnostics": diagnostics,
             "status": "infeasible"
         }

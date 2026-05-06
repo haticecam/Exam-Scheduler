@@ -443,14 +443,23 @@ def build_optimizer_kwargs(scenario_params: dict) -> dict:
     kwargs = get_optimizer_defaults()
     blueprint_map = get_blueprint_map()
 
+    no_back_to_back_depts = []
+
     for code, value in scenario_params.items():
         if code not in blueprint_map:
             continue
         bp = blueprint_map[code]
-        if bp["category"] != "SOLVER_PARAM":
-            continue
-        kwarg_name = bp["param_schema"]["optimizer_kwarg"]
-        kwargs[kwarg_name] = value
+        if bp["category"] == "SOLVER_PARAM":
+            kwarg_name = bp["param_schema"]["optimizer_kwarg"]
+            kwargs[kwarg_name] = value
+        elif code == "SCOPE_DEPT_NO_BACK_TO_BACK":
+            if isinstance(value, dict) and value.get("enabled", True):
+                dept = value.get("department")
+                if dept:
+                    no_back_to_back_depts.append(dept)
+
+    if no_back_to_back_depts:
+        kwargs["no_back_to_back_depts"] = no_back_to_back_depts
 
     return kwargs
 
