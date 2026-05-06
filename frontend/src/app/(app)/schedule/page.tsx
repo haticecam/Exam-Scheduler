@@ -23,7 +23,7 @@ function ScheduleContent() {
         } else {
           const historyRes = await api.get("/optimize/history/");
           const histories = historyRes.results || historyRes || [];
-          const DONE = ["COMPLETED", "OPTIMAL", "FEASIBLE", "FEASIBLE (TIME LIMIT)"];
+          const DONE = ["COMPLETED", "OPTIMAL", "FEASIBLE", "FEASIBLE (TIME LIMIT)", "FEASIBLE_TIME_LIMIT"];
           const latestCompleted = histories.find((h: any) => DONE.includes(h.status));
           if (latestCompleted?.id) {
             const res = await api.get(`/optimize/${latestCompleted.id}/result/`);

@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import patch
+from django.test import TestCase
 from core.models import (
     Organization, Term, AcademicUnit, CourseCatalog, CourseSection,
     StudentGroup, Student, Enrollment
@@ -99,3 +100,111 @@ def test_demo_updater_skips_graduation_courses(org):
 
     # Should report no valid data found
     assert "error" in result
+
+
+class YearOrderingBlueprintTests(TestCase):
+
+    def test_weight_year_order_in_library(self):
+        from core.services.constraint_library import get_blueprint_map
+        bp = get_blueprint_map()
+        self.assertIn("PARAM_YEAR_ORDER_WEIGHT", bp)
+        schema = bp["PARAM_YEAR_ORDER_WEIGHT"]["param_schema"]
+        self.assertEqual(schema["type"], "number")
+        self.assertEqual(schema["minimum"], 10.0)
+        self.assertEqual(schema["maximum"], 500.0)
+        self.assertEqual(schema["default"], 100.0)
+        self.assertEqual(schema["optimizer_kwarg"], "year_order_weight")
+
+    def test_year_order_sequence_in_library(self):
+        from core.services.constraint_library import get_blueprint_map
+        bp = get_blueprint_map()
+        self.assertIn("PARAM_YEAR_ORDER_SEQUENCE", bp)
+        schema = bp["PARAM_YEAR_ORDER_SEQUENCE"]["param_schema"]
+        self.assertEqual(schema["type"], "array")
+        self.assertIsNone(schema["default"])
+        self.assertEqual(schema["optimizer_kwarg"], "year_order_sequence")
+
+    def test_weight_year_order_validation_rejects_out_of_range(self):
+        from core.services.constraint_library import validate_parameter
+        ok, _ = validate_parameter("PARAM_YEAR_ORDER_WEIGHT", 5.0)
+        self.assertFalse(ok)
+        ok, _ = validate_parameter("PARAM_YEAR_ORDER_WEIGHT", 600.0)
+        self.assertFalse(ok)
+        ok, _ = validate_parameter("PARAM_YEAR_ORDER_WEIGHT", 10.0)
+        self.assertTrue(ok)
+        ok, _ = validate_parameter("PARAM_YEAR_ORDER_WEIGHT", 500.0)
+        self.assertTrue(ok)
+
+    def test_year_order_sequence_validation_accepts_list(self):
+        from core.services.constraint_library import validate_parameter
+        ok, err = validate_parameter("PARAM_YEAR_ORDER_SEQUENCE", [4, 1])
+        self.assertTrue(ok, err)
+
+    def test_build_optimizer_kwargs_includes_sequence(self):
+        from core.services.constraint_library import build_optimizer_kwargs
+        kwargs = build_optimizer_kwargs({
+            "PARAM_YEAR_ORDER_SEQUENCE": [4, 1],
+            "PARAM_YEAR_ORDER_WEIGHT": 200.0,
+        })
+        self.assertEqual(kwargs["year_order_sequence"], [4, 1])
+        self.assertEqual(kwargs["year_order_weight"], 200.0)
+
+    def test_defaults_include_year_order_weight(self):
+        from core.services.constraint_library import get_optimizer_defaults
+        defaults = get_optimizer_defaults()
+        self.assertNotIn("year_ordering", defaults)
+        self.assertIn("year_order_weight", defaults)
+        self.assertEqual(defaults["year_order_weight"], 100.0)
+        self.assertIn("year_order_sequence", defaults)
+        self.assertIsNone(defaults["year_order_sequence"])
+
+    def test_llm_context_includes_year_order_params(self):
+        from core.services.constraint_library import generate_llm_context
+        ctx = generate_llm_context()
+        self.assertNotIn("PARAM_YEAR_ORDERING", ctx)
+        self.assertIn("PARAM_YEAR_ORDER_WEIGHT", ctx)
+        self.assertIn("PARAM_YEAR_ORDER_SEQUENCE", ctx)
+
+
+class YearBandComputationTests(TestCase):
+
+    def test_four_years_ten_days(self):
+        from core.services.optimizer import compute_year_bands
+        bands = compute_year_bands([1, 2, 3, 4], 10)
+        self.assertEqual(bands[1], (0, 2))
+        self.assertEqual(bands[2], (2, 5))
+        self.assertEqual(bands[3], (5, 7))
+        self.assertEqual(bands[4], (7, 10))
+
+    def test_two_years_six_days(self):
+        from core.services.optimizer import compute_year_bands
+        bands = compute_year_bands([1, 2], 6)
+        self.assertEqual(bands[1], (0, 3))
+        self.assertEqual(bands[2], (3, 6))
+
+    def test_single_year_returns_empty(self):
+        from core.services.optimizer import compute_year_bands
+        bands = compute_year_bands([1, 1, 1], 10)
+        self.assertEqual(bands, {})
+
+    def test_duplicate_levels_deduplicated(self):
+        from core.services.optimizer import compute_year_bands
+        bands = compute_year_bands([2, 1, 2, 1, 3], 9)
+        self.assertEqual(set(bands.keys()), {1, 2, 3})
+
+    def test_last_band_always_reaches_exam_days(self):
+        from core.services.optimizer import compute_year_bands
+        bands = compute_year_bands([1, 2, 3], 7)
+        self.assertEqual(bands[3][1], 7)
+
+    def test_bands_are_contiguous(self):
+        from core.services.optimizer import compute_year_bands
+        bands = compute_year_bands([1, 2, 3, 4], 10)
+        levels = sorted(bands.keys())
+        for a, b in zip(levels, levels[1:]):
+            self.assertEqual(bands[a][1], bands[b][0])
+
+    def test_empty_input_returns_empty(self):
+        from core.services.optimizer import compute_year_bands
+        bands = compute_year_bands([], 10)
+        self.assertEqual(bands, {})
