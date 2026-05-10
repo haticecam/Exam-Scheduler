@@ -10,11 +10,11 @@ import logging
 
 from django.http import HttpResponse
 
-from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource, GeneratedSolution, CourseSection
+from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource, TermResource, GeneratedSolution, CourseSection
 from .serializers import (
     OrganizationSerializer, CourseCatalogSerializer, AcademicUnitSerializer, TermSerializer,
     StudentSerializer, OptimizeRequestSerializer, SimulateStudentsRequestSerializer, ResourceSerializer,
-    LLMConfigureRequestSerializer, LLMConfirmRequestSerializer, LLMDiagnoseRequestSerializer,
+    TermResourceSerializer, LLMConfigureRequestSerializer, LLMConfirmRequestSerializer, LLMDiagnoseRequestSerializer,
 )
 from .tasks import dummy_gurobi_task
 from .services.simulator import StudentSimulatorService
@@ -753,6 +753,17 @@ class ResourceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return Resource.objects.filter(organization__isnull=False)
+
+
+class TermResourceViewSet(viewsets.ModelViewSet):
+    serializer_class = TermResourceSerializer
+
+    def get_queryset(self):
+        qs = TermResource.objects.select_related('resource', 'term').prefetch_related('restricted_to_units')
+        term_id = self.request.query_params.get('term')
+        if term_id:
+            qs = qs.filter(term_id=term_id)
+        return qs
 
 
 # ═══════════════════════════════════════════════════════════════════

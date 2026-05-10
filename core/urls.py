@@ -3,7 +3,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     SystemStatusView, OrganizationViewSet, CourseCatalogViewSet, AcademicUnitViewSet,
     SimulateStudentsView, TermViewSet, StudentViewSet, OptimizerViewSet, DashboardStatsView,
-    ResourceViewSet, LLMConfigureView, LLMConfirmView, LLMDiagnoseView, LLMLibraryView,
+    ResourceViewSet, TermResourceViewSet, LLMConfigureView, LLMConfirmView, LLMDiagnoseView,
+    LLMLibraryView,
 )
 
 router = DefaultRouter()
@@ -13,6 +14,7 @@ router.register(r'academic-units', AcademicUnitViewSet, basename='academic-unit'
 router.register(r'terms', TermViewSet, basename='term')
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'resources', ResourceViewSet, basename='resource')
+router.register(r'term-resources', TermResourceViewSet, basename='term-resource')
 router.register(r'optimize', OptimizerViewSet, basename='optimize')
 
 urlpatterns = [

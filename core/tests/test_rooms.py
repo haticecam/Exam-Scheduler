@@ -1,6 +1,19 @@
+import json
 import pytest
+from django.test import Client
+from django.contrib.auth.models import User
+from rest_framework.authtoken.models import Token
 from django.core.management import call_command
 from core.models import Organization, Resource
+
+
+@pytest.fixture
+def auth_client(db):
+    user = User.objects.create_user(username='roomtester', password='pass')
+    token = Token.objects.create(user=user)
+    c = Client()
+    c.defaults['HTTP_AUTHORIZATION'] = f'Token {token.key}'
+    return c
 
 
 @pytest.fixture
@@ -208,3 +221,36 @@ def test_optimizer_excludes_inactive_term_resources(org):
     TermResource.objects.create(resource=base_room, term=term, is_active=False)
     rooms = OptimizerService(term_id=str(term.id)).load_rooms()
     assert 'CZ08-09' not in rooms
+
+
+# ── Task 4: TermResource API endpoints ───────────────────────────────────────
+
+@pytest.mark.django_db
+def test_term_resource_list_endpoint(auth_client, org, term, room):
+    """GET /api/term-resources/?term=<id> returns only records for that term."""
+    TermResource.objects.create(resource=room, term=term, is_active=True)
+    response = auth_client.get(f'/api/term-resources/?term={term.id}')
+    assert response.status_code == 200
+    body = response.json()
+    results = body.get('results', body) if isinstance(body, dict) else body
+    assert len(results) == 1
+    assert results[0]['resource'] == str(room.id)
+
+
+@pytest.mark.django_db
+def test_term_resource_create_endpoint(auth_client, org, term, room):
+    """POST /api/term-resources/ creates a TermResource."""
+    payload = {
+        'resource': str(room.id),
+        'term': str(term.id),
+        'full_capacity': 60,
+        'exam_capacity': 20,
+        'available_days': 31,
+        'is_active': True,
+        'restricted_to_units': [],
+    }
+    response = auth_client.post('/api/term-resources/', data=json.dumps(payload), content_type='application/json')
+    assert response.status_code == 201
+    data = response.json()
+    assert data['exam_capacity'] == 20
+    assert data['effective_exam_capacity'] == 20
