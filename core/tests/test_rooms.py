@@ -40,10 +40,11 @@ def test_seed_rooms_is_idempotent(org):
 
 @pytest.mark.django_db
 def test_seed_rooms_correct_capacity(org):
-    """CZ08-09 room capacity must be 132 (real capacity, not divided)."""
+    """CZ08-09 full_capacity must be 132; exam_capacity must be 44."""
     call_command('seed_rooms', org_id=str(org.id))
     room = Resource.objects.get(organization=org, name='CZ08-09', type='CLASSROOM')
-    assert room.capacity == 132
+    assert room.full_capacity == 132
+    assert room.exam_capacity == 44
 
 
 @pytest.mark.django_db

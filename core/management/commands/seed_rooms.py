@@ -27,12 +27,16 @@ class Command(BaseCommand):
 
         created = 0
         skipped = 0
-        for name, capacity in EXAM_ROOMS.items():
+        for name, full_cap in EXAM_ROOMS.items():
             _, was_created = Resource.objects.get_or_create(
                 organization=org,
                 name=name,
                 type='CLASSROOM',
-                defaults={'capacity': capacity, 'is_active': True}
+                defaults={
+                    'full_capacity': full_cap,
+                    'exam_capacity': full_cap // 3,
+                    'is_active': True,
+                },
             )
             if was_created:
                 created += 1
