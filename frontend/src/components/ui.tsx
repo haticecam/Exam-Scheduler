@@ -14,6 +14,7 @@ export const Badge = ({ status }: { status: string }) => {
     FAILED:                 { bg: "color-mix(in srgb, var(--status-danger) 12%, transparent)",    color: "var(--status-danger)",   label: "Başarısız" },
     INFEASIBLE:             { bg: "color-mix(in srgb, var(--status-danger) 12%, transparent)",    color: "var(--status-danger)",   label: "Çözümsüz" },
     PENDING:                { bg: "color-mix(in srgb, var(--status-warning) 12%, transparent)",   color: "var(--status-warning)",  label: "Bekliyor" },
+    CANCELLED:              { bg: "color-mix(in srgb, var(--on-surface-variant) 12%, transparent)", color: "var(--on-surface-variant)", label: "İptal Edildi" },
     Active:                 { bg: "color-mix(in srgb, var(--status-success) 12%, transparent)",  color: "var(--status-success)",  label: "Aktif" },
     Planning:               { bg: "color-mix(in srgb, var(--status-planning) 12%, transparent)", color: "var(--status-planning)", label: "Planlama" },
     Archived:               { bg: "color-mix(in srgb, var(--on-surface-variant) 12%, transparent)", color: "var(--on-surface-variant)", label: "Aktif Değil" },

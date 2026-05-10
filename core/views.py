@@ -756,6 +756,24 @@ class OptimizerViewSet(viewsets.ViewSet):
             "penalties": dept_penalties,
         })
 
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel(self, request, pk=None):
+        """Çalışan veya bekleyen bir optimizasyon görevini iptal eder."""
+        solution = get_object_or_404(GeneratedSolution, id=pk)
+        if solution.status not in ('PROCESSING', 'PENDING'):
+            return Response(
+                {"error": f"Görev zaten tamamlanmış veya başarısız: {solution.status}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if solution.celery_task_id:
+            from celery.app.control import Control
+            from exam_scheduler.celery import app as celery_app
+            Control(celery_app).revoke(solution.celery_task_id, terminate=True, signal='SIGTERM')
+        solution.status = 'CANCELLED'
+        solution.error_message = 'Kullanıcı tarafından iptal edildi.'
+        solution.save()
+        return Response({"status": "CANCELLED"})
+
     def destroy(self, request, pk=None):
         """Çözümü (GeneratedSolution) siler."""
         solution = get_object_or_404(GeneratedSolution, id=pk)

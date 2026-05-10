@@ -23,6 +23,18 @@ export default function SolutionsPage() {
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  const handleCancel = async (s: any) => {
+    setCancellingId(s.id);
+    try {
+      await api.post(`/optimize/${s.id}/cancel/`, {});
+      refetch();
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   const [diagTarget, setDiagTarget] = useState<string | null>(null);
   const [diagSt, setDiagSt] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [diagResult, setDiagResult] = useState<DiagnoseResult | null>(null);
@@ -122,6 +134,15 @@ export default function SolutionsPage() {
                           ? "✦  Tanıyı Kapat"
                           : "✦  AI ile Tanı Koy"}
                       </button>
+                    )}
+                    {(s.status === "PROCESSING" || s.status === "PENDING") && (
+                      <ActionButton
+                        onClick={() => handleCancel(s)}
+                        variant="danger"
+                        disabled={cancellingId === s.id}
+                      >
+                        {cancellingId === s.id ? "Durduruluyor…" : "Durdur"}
+                      </ActionButton>
                     )}
                     <ActionButton onClick={() => setDeleteTarget(s)} variant="danger">
                       Sil
