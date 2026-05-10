@@ -28,6 +28,7 @@ export default function RoomsPage() {
   // Add form
   const [name, setName] = useState("");
   const [capacity, setCapacity] = useState("");
+  const [examCapacity, setExamCapacity] = useState("");
   const [type, setType] = useState("CLASSROOM");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -36,6 +37,7 @@ export default function RoomsPage() {
   const [editRoom, setEditRoom] = useState<any>(null);
   const [editName, setEditName] = useState("");
   const [editCapacity, setEditCapacity] = useState("");
+  const [editExamCapacity, setEditExamCapacity] = useState("");
   const [editType, setEditType] = useState("CLASSROOM");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState("");
@@ -52,9 +54,16 @@ export default function RoomsPage() {
     try {
       const orgData = await api.get("/organizations/");
       const orgId = orgData?.[0]?.id || orgData?.results?.[0]?.id;
-      await api.post("/resources/", { name, capacity: parseInt(capacity), type, organization: orgId });
+      await api.post("/resources/", {
+        name,
+        full_capacity: parseInt(capacity),
+        exam_capacity: parseInt(examCapacity),
+        type,
+        organization: orgId,
+      });
       setName("");
       setCapacity("");
+      setExamCapacity("");
       refetch();
     } catch (err: any) {
       setSaveError(err.message || "Oda eklenemedi.");
@@ -66,7 +75,8 @@ export default function RoomsPage() {
   const openEdit = (room: any) => {
     setEditRoom(room);
     setEditName(room.name);
-    setEditCapacity(String(room.capacity));
+    setEditCapacity(String(room.full_capacity ?? ""));
+    setEditExamCapacity(String(room.exam_capacity ?? ""));
     setEditType(room.type);
     setEditError("");
   };
@@ -78,7 +88,8 @@ export default function RoomsPage() {
     try {
       await api.patch(`/resources/${editRoom.id}/`, {
         name: editName,
-        capacity: parseInt(editCapacity),
+        full_capacity: parseInt(editCapacity),
+        exam_capacity: parseInt(editExamCapacity),
         type: editType,
       });
       refetch();
@@ -122,10 +133,14 @@ export default function RoomsPage() {
               <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>ODA ADI / KODU</label>
               <input value={name} onChange={e => setName(e.target.value)} placeholder="Örn: B101" style={inputStyle} />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
               <div>
-                <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>KAPASİTE</label>
-                <input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="30" style={inputStyle} />
+                <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>TAM KAPASİTE</label>
+                <input type="number" value={capacity} onChange={e => setCapacity(e.target.value)} placeholder="90" style={inputStyle} />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>SINAV KAP.</label>
+                <input type="number" value={examCapacity} onChange={e => setExamCapacity(e.target.value)} placeholder="30" style={inputStyle} />
               </div>
               <div>
                 <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>TÜR</label>
@@ -135,14 +150,14 @@ export default function RoomsPage() {
               </div>
             </div>
             {saveError && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{saveError}</p>}
-            <ActionButton disabled={saving || !name || !capacity} icon="+">
+            <ActionButton disabled={saving || !name || !capacity || !examCapacity} icon="+">
               {saving ? "Ekleniyor..." : "Odayı Kaydet"}
             </ActionButton>
           </form>
         </Card>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <DataTable headers={["Oda Adı", "Tür", "Kapasite", "İşlemler"]}>
+          <DataTable headers={["Oda Adı", "Tür", "Tam Kapasite", "Sınav Kapasitesi", "İşlemler"]}>
             {loading && <DataRow><DataCell colSpan={4} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell></DataRow>}
             {!loading && rooms.length === 0 && <DataRow><DataCell colSpan={4}><InfoBox msg="Henüz hiç oda eklenmemiş." /></DataCell></DataRow>}
             {rooms.map((room: any) => (
@@ -151,7 +166,8 @@ export default function RoomsPage() {
                 <DataCell>
                   <span style={{ fontSize: 11, background: C.cyanSoft, color: C.cyan, padding: "4px 8px", borderRadius: 4, ...mono }}>{room.type}</span>
                 </DataCell>
-                <DataCell style={{ color: C.textSub, ...mono }}>{room.capacity} Kişi</DataCell>
+                <DataCell style={{ color: C.textSub, ...mono }}>{room.full_capacity ?? '—'} Kişi</DataCell>
+                <DataCell style={{ color: C.textSub, ...mono }}>{room.exam_capacity ?? '—'} Kişi</DataCell>
                 <DataCell>
                   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                     <ActionButton onClick={() => openEdit(room)} variant="secondary">Düzenle</ActionButton>
@@ -180,14 +196,23 @@ export default function RoomsPage() {
                 autoFocus
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="edit-room-cap">Kapasite</Label>
+                <Label htmlFor="edit-room-cap">Tam Kapasite</Label>
                 <Input
                   id="edit-room-cap"
                   type="number"
                   value={editCapacity}
                   onChange={e => setEditCapacity(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="edit-room-exam-cap">Sınav Kapasitesi</Label>
+                <Input
+                  id="edit-room-exam-cap"
+                  type="number"
+                  value={editExamCapacity}
+                  onChange={e => setEditExamCapacity(e.target.value)}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
@@ -206,7 +231,7 @@ export default function RoomsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditRoom(null)} disabled={editLoading}>İptal</Button>
-            <Button onClick={handleEdit} disabled={editLoading || !editName || !editCapacity}>
+            <Button onClick={handleEdit} disabled={editLoading || !editName || !editCapacity || !editExamCapacity}>
               {editLoading ? "Kaydediliyor…" : "Kaydet"}
             </Button>
           </DialogFooter>
