@@ -43,7 +43,7 @@ def test_seed_rooms_missing_org_raises(db):
 
 
 from core.services.optimizer import OptimizerService
-from core.models import Term
+from core.models import Term, TermResource, AcademicUnit
 
 
 @pytest.mark.django_db
@@ -68,3 +68,143 @@ def test_optimizer_raises_when_no_rooms(org):
     svc = OptimizerService(term_id=str(term.id))
     with pytest.raises(ValueError, match="No active CLASSROOM resources"):
         svc.load_rooms()
+
+
+# ── Task 1: Resource dual-capacity fields ────────────────────────────────────
+
+@pytest.mark.django_db
+def test_resource_has_full_and_exam_capacity(org):
+    """Resource must expose full_capacity and exam_capacity as separate fields."""
+    room = Resource.objects.create(
+        organization=org,
+        name="TEST-01",
+        type="CLASSROOM",
+        full_capacity=90,
+        exam_capacity=30,
+        is_active=True,
+    )
+    loaded = Resource.objects.get(pk=room.pk)
+    assert loaded.full_capacity == 90
+    assert loaded.exam_capacity == 30
+
+
+# ── Task 2: TermResource model ───────────────────────────────────────────────
+
+@pytest.fixture
+def term(db, org):
+    return Term.objects.create(organization=org, name='Fall 2026', status='Planning')
+
+
+@pytest.fixture
+def room(db, org):
+    return Resource.objects.create(
+        organization=org, name='A101', type='CLASSROOM',
+        full_capacity=90, exam_capacity=30, is_active=True,
+    )
+
+
+@pytest.mark.django_db
+def test_term_resource_created_with_overrides(org, term, room):
+    """TermResource can override capacity for a specific term."""
+    tr = TermResource.objects.create(
+        resource=room, term=term,
+        full_capacity=60, exam_capacity=20, available_days=31, is_active=True,
+    )
+    loaded = TermResource.objects.get(pk=tr.pk)
+    assert loaded.full_capacity == 60
+    assert loaded.exam_capacity == 20
+    assert loaded.available_days == 31
+
+
+@pytest.mark.django_db
+def test_term_resource_unit_restriction(org, term, room):
+    """TermResource.restricted_to_units M2M works correctly."""
+    unit = AcademicUnit.objects.create(organization=org, name='CS Dept', type='Department')
+    tr = TermResource.objects.create(resource=room, term=term, is_active=True)
+    tr.restricted_to_units.add(unit)
+    assert tr.restricted_to_units.filter(pk=unit.pk).exists()
+
+
+@pytest.mark.django_db
+def test_term_resource_unique_constraint(org, term, room):
+    """Only one TermResource may exist per (resource, term) pair."""
+    from django.db import IntegrityError
+    TermResource.objects.create(resource=room, term=term, is_active=True)
+    with pytest.raises(IntegrityError):
+        TermResource.objects.create(resource=room, term=term, is_active=False)
+
+
+# ── Task 3: Serializer tests ─────────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_resource_serializer_exposes_both_capacities(org, room):
+    """ResourceSerializer must include full_capacity and exam_capacity."""
+    from core.serializers import ResourceSerializer
+    data = ResourceSerializer(room).data
+    assert 'full_capacity' in data
+    assert 'exam_capacity' in data
+    assert 'capacity' not in data
+
+
+@pytest.mark.django_db
+def test_term_resource_serializer_round_trip(org, term, room):
+    """TermResourceSerializer must create and return a TermResource."""
+    from core.serializers import TermResourceSerializer
+    payload = {
+        'resource': str(room.id),
+        'term': str(term.id),
+        'full_capacity': 50,
+        'exam_capacity': 17,
+        'available_days': 31,
+        'is_active': True,
+        'restricted_to_units': [],
+    }
+    s = TermResourceSerializer(data=payload)
+    assert s.is_valid(), s.errors
+    obj = s.save()
+    assert obj.exam_capacity == 17
+    assert obj.available_days == 31
+
+
+# ── Task 5: seed_rooms sets both capacities ──────────────────────────────────
+
+@pytest.mark.django_db
+def test_seed_rooms_sets_exam_capacity(org):
+    """seed_rooms must populate exam_capacity = full_capacity // 3."""
+    call_command('seed_rooms', org_id=str(org.id))
+    room = Resource.objects.get(organization=org, name='CZ08-09')
+    assert room.full_capacity == 132
+    assert room.exam_capacity == 44  # 132 // 3
+
+
+# ── Task 6: Optimizer load_rooms() uses TermResource ─────────────────────────
+
+@pytest.mark.django_db
+def test_optimizer_uses_term_resource_exam_capacity(org):
+    """load_rooms() uses TermResource.exam_capacity override when one exists."""
+    term = Term.objects.create(organization=org, name='Fall 2026', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+    base_room = Resource.objects.get(organization=org, name='CZ08-09')
+    TermResource.objects.create(resource=base_room, term=term, exam_capacity=50, is_active=True)
+    rooms = OptimizerService(term_id=str(term.id)).load_rooms()
+    assert rooms['CZ08-09'] == 50
+
+
+@pytest.mark.django_db
+def test_optimizer_falls_back_to_resource_when_no_term_resource(org):
+    """load_rooms() falls back to Resource.exam_capacity when no TermResource exists."""
+    term = Term.objects.create(organization=org, name='Fall 2026', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+    rooms = OptimizerService(term_id=str(term.id)).load_rooms()
+    assert rooms['CZ08-09'] == 44  # Resource.exam_capacity
+
+
+@pytest.mark.django_db
+def test_optimizer_excludes_inactive_term_resources(org):
+    """load_rooms() must exclude rooms where TermResource.is_active=False."""
+    term = Term.objects.create(organization=org, name='Fall 2026', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+    base_room = Resource.objects.get(organization=org, name='CZ08-09')
+    TermResource.objects.create(resource=base_room, term=term, is_active=False)
+    rooms = OptimizerService(term_id=str(term.id)).load_rooms()
+    assert 'CZ08-09' not in rooms

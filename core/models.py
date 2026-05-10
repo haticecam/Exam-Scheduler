@@ -168,16 +168,43 @@ class Resource(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='resources')
     name = models.CharField(max_length=255)
-    type = models.CharField(max_length=50) # maps to room_type_enum conceptually
-    capacity = models.IntegerField(null=True, blank=True)
+    type = models.CharField(max_length=50)
+    full_capacity = models.IntegerField(null=True, blank=True)
+    exam_capacity = models.IntegerField(null=True, blank=True)
     attributes = models.JSONField(default=dict, blank=True)
-    availability = models.JSONField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'resource'
         indexes = [
             models.Index(fields=['attributes'], name='ix_resource_attributes')
+        ]
+
+
+class TermResource(models.Model):
+    """Per-term configuration for a room. Overrides Resource defaults for a single term."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name='term_configs')
+    term = models.ForeignKey(Term, on_delete=models.CASCADE, related_name='room_configs')
+    # Nullable overrides — null means "use Resource default"
+    full_capacity = models.IntegerField(null=True, blank=True)
+    exam_capacity = models.IntegerField(null=True, blank=True)
+    # Bitmask: bit 0=Mon, 1=Tue, 2=Wed, 3=Thu, 4=Fri, 5=Sat, 6=Sun. 127=all days (no restriction).
+    available_days = models.IntegerField(default=127)
+    # Empty = no restriction; non-empty = only these units may use this room
+    restricted_to_units = models.ManyToManyField(
+        AcademicUnit,
+        blank=True,
+        related_name='restricted_rooms',
+        db_table='term_resource_restricted_units',
+    )
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'term_resource'
+        constraints = [
+            models.UniqueConstraint(fields=['resource', 'term'], name='uq_resource_term')
         ]
 
 class Instructor(models.Model):
