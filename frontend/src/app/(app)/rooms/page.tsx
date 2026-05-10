@@ -14,6 +14,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  TermResourceDialog,
+  type Resource,
+  type TermResource,
+  type AcademicUnit,
+} from "./TermResourceDialog";
 
 const ROOM_TYPES = [
   { value: "CLASSROOM", label: "Derslik" },
@@ -45,6 +51,27 @@ export default function RoomsPage() {
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Term-resource config dialog
+  const [configRoom, setConfigRoom] = useState<Resource | null>(null);
+
+  // Active term + term-specific room configs
+  const { data: termsData } = useFetch("/terms/");
+  const terms: any[] = termsData?.results ?? termsData ?? [];
+  const activeTerm = terms.find((t: any) => t.status === "Active") ?? null;
+
+  const { data: trData, refetch: refetchTR } = useFetch(
+    activeTerm ? `/term-resources/?term=${activeTerm.id}` : "",
+    [activeTerm?.id]
+  );
+  const termResources: TermResource[] = trData?.results ?? trData ?? [];
+  const termResourceMap: Record<string, TermResource> = Object.fromEntries(
+    termResources.map((tr) => [tr.resource, tr])
+  );
+
+  // Academic units for the unit-restriction checkboxes
+  const { data: unitsData } = useFetch("/academic-units/");
+  const academicUnits: AcademicUnit[] = unitsData?.results ?? unitsData ?? [];
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,7 +196,21 @@ export default function RoomsPage() {
                 <DataCell style={{ color: C.textSub, ...mono }}>{room.full_capacity ?? '—'} Kişi</DataCell>
                 <DataCell style={{ color: C.textSub, ...mono }}>{room.exam_capacity ?? '—'} Kişi</DataCell>
                 <DataCell>
-                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
+                    {termResourceMap[room.id] && (
+                      <span style={{ fontSize: 11, background: C.cyanSoft, color: C.cyan, padding: "3px 8px", borderRadius: 4, ...mono }}>
+                        Yapılandırıldı
+                      </span>
+                    )}
+                    <span title={!activeTerm ? "Önce aktif bir dönem seçin" : undefined}>
+                      <ActionButton
+                        onClick={() => setConfigRoom(room as Resource)}
+                        variant="secondary"
+                        disabled={!activeTerm}
+                      >
+                        {termResourceMap[room.id] ? "Düzenle (Dönem)" : "Yapılandır"}
+                      </ActionButton>
+                    </span>
                     <ActionButton onClick={() => openEdit(room)} variant="secondary">Düzenle</ActionButton>
                     <ActionButton onClick={() => setDeleteTarget(room)} variant="danger">Sil</ActionButton>
                   </div>
@@ -248,6 +289,19 @@ export default function RoomsPage() {
         onConfirm={handleDelete}
         loading={deleteLoading}
       />
+
+      {/* Term-resource config dialog */}
+      {configRoom && activeTerm && (
+        <TermResourceDialog
+          open={!!configRoom}
+          onClose={() => setConfigRoom(null)}
+          onSaved={refetchTR}
+          room={configRoom}
+          termId={activeTerm.id}
+          existingConfig={termResourceMap[configRoom.id] ?? null}
+          academicUnits={academicUnits}
+        />
+      )}
     </PageContainer>
   );
 }
