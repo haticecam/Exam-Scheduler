@@ -71,7 +71,9 @@ def test_optimizer_loads_rooms_from_db(org):
 
     assert len(rooms) == 24
     assert 'CZ08-09' in rooms
-    assert rooms['CZ08-09'] == 44  # 132 // 3 (shift capacity)
+    assert rooms['CZ08-09']['capacity'] == 44  # 132 // 3 (shift capacity)
+    assert rooms['CZ08-09']['available_days'] == 127
+    assert rooms['CZ08-09']['restricted_to_units'] == []
 
 
 @pytest.mark.django_db
@@ -201,7 +203,7 @@ def test_optimizer_uses_term_resource_exam_capacity(org):
     base_room = Resource.objects.get(organization=org, name='CZ08-09')
     TermResource.objects.create(resource=base_room, term=term, exam_capacity=50, is_active=True)
     rooms = OptimizerService(term_id=str(term.id)).load_rooms()
-    assert rooms['CZ08-09'] == 50
+    assert rooms['CZ08-09']['capacity'] == 50
 
 
 @pytest.mark.django_db
@@ -210,7 +212,7 @@ def test_optimizer_falls_back_to_resource_when_no_term_resource(org):
     term = Term.objects.create(organization=org, name='Fall 2026', status='Active')
     call_command('seed_rooms', org_id=str(org.id))
     rooms = OptimizerService(term_id=str(term.id)).load_rooms()
-    assert rooms['CZ08-09'] == 44  # Resource.exam_capacity
+    assert rooms['CZ08-09']['capacity'] == 44  # Resource.exam_capacity
 
 
 @pytest.mark.django_db
@@ -222,6 +224,31 @@ def test_optimizer_excludes_inactive_term_resources(org):
     TermResource.objects.create(resource=base_room, term=term, is_active=False)
     rooms = OptimizerService(term_id=str(term.id)).load_rooms()
     assert 'CZ08-09' not in rooms
+
+
+@pytest.mark.django_db
+def test_load_rooms_returns_available_days(org):
+    """load_rooms() exposes available_days from TermResource (Mon-Fri = 31)."""
+    term = Term.objects.create(organization=org, name='Fall 2026', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+    base_room = Resource.objects.get(organization=org, name='CZ08-09')
+    TermResource.objects.create(resource=base_room, term=term, is_active=True, available_days=31)
+    rooms = OptimizerService(term_id=str(term.id)).load_rooms()
+    assert rooms['CZ08-09']['available_days'] == 31
+
+
+@pytest.mark.django_db
+def test_load_rooms_returns_restricted_to_units(org):
+    """load_rooms() exposes restricted_to_units UUIDs from TermResource."""
+    from core.models import AcademicUnit
+    term = Term.objects.create(organization=org, name='Fall 2026', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+    unit = AcademicUnit.objects.create(organization=org, name='CS Dept', type='DEPARTMENT')
+    base_room = Resource.objects.get(organization=org, name='CZ08-09')
+    tr = TermResource.objects.create(resource=base_room, term=term, is_active=True)
+    tr.restricted_to_units.add(unit)
+    rooms = OptimizerService(term_id=str(term.id)).load_rooms()
+    assert str(unit.id) in rooms['CZ08-09']['restricted_to_units']
 
 
 # ── Task 4: TermResource API endpoints ───────────────────────────────────────

@@ -65,7 +65,7 @@ class OptimizerService:
     def __init__(self, term_id: str):
         self.term_id = str(term_id)
 
-    def load_rooms(self) -> dict[str, int]:
+    def load_rooms(self) -> dict[str, dict]:
         """
         Load active exam rooms for this term.
 
@@ -73,7 +73,9 @@ class OptimizerService:
         to the org-level Resource.exam_capacity. A room with an explicit inactive
         TermResource is excluded even if the base Resource is active.
 
-        Returns dict: room_name → effective exam_capacity.
+        Returns dict: room_name → {capacity, available_days, restricted_to_units}.
+          - available_days: bitmask (bit 0=Mon … bit 6=Sun, 127=all days)
+          - restricted_to_units: list of academic-unit UUID strings (empty = no restriction)
         Raises ValueError if no rooms are available.
         """
         from core.models import Term, Resource, TermResource
@@ -85,7 +87,9 @@ class OptimizerService:
         # Build a per-room override map from TermResource (active + inactive)
         term_resource_map: dict = {
             tr.resource_id: tr
-            for tr in TermResource.objects.filter(term=term).select_related('resource')
+            for tr in TermResource.objects.filter(term=term)
+                .select_related('resource')
+                .prefetch_related('restricted_to_units')
         }
 
         # Walk all org-level active CLASSROOM rooms and apply overrides
@@ -96,17 +100,25 @@ class OptimizerService:
             exam_capacity__isnull=False,
         )
 
-        rooms: dict[str, int] = {}
+        rooms: dict[str, dict] = {}
         for r in base_rooms:
             tr = term_resource_map.get(r.id)
             if tr is not None:
                 if not tr.is_active:
                     continue  # explicitly disabled for this term
                 cap = tr.exam_capacity if tr.exam_capacity is not None else r.exam_capacity
+                avail_days = tr.available_days
+                restricted_units = [str(uid) for uid in tr.restricted_to_units.values_list('id', flat=True)]
             else:
                 cap = r.exam_capacity
+                avail_days = 127  # all days
+                restricted_units = []
             if cap is not None:
-                rooms[r.name] = cap
+                rooms[r.name] = {
+                    "capacity": cap,
+                    "available_days": avail_days,
+                    "restricted_to_units": restricted_units,
+                }
 
         if not rooms:
             raise ValueError(
@@ -282,6 +294,27 @@ class OptimizerService:
                 for s in valid_starts(c):
                     x_start[(c, r, s)] = m.addVar(vtype=GRB.BINARY, name=f"x[{short[c]},{r},{s}]")
 
+        # Fix x_start UB=0 for day-availability and unit-restriction constraints.
+        # Doing this before m.update() lets Gurobi propagate the bounds during presolve.
+        for r, rdata in rooms.items():
+            avail = rdata["available_days"]
+            if avail != 127:
+                for d in range(exam_days):
+                    if not (avail & (1 << (d % 7))):  # day d is blocked for this room
+                        for c in C:
+                            for s in valid_starts(c):
+                                if s // slots_per_day == d and (c, r, s) in x_start:
+                                    x_start[(c, r, s)].UB = 0
+
+            restricted = rdata["restricted_to_units"]
+            if restricted:
+                restricted_set = set(restricted)
+                for c in C:
+                    if info[c]["student_dept_id"] not in restricted_set:
+                        for s in valid_starts(c):
+                            if (c, r, s) in x_start:
+                                x_start[(c, r, s)].UB = 0
+
         m.update()
 
         for c in C:
@@ -292,7 +325,7 @@ class OptimizerService:
             enrolled = info[c]["enrolled_count"]
             for s in valid_starts(c):
                 m.addConstr(
-                    quicksum(x_start[(c, r, s)] * rooms[r] for r in rooms) >= enrolled * y[(c, s)],
+                    quicksum(x_start[(c, r, s)] * rooms[r]["capacity"] for r in rooms) >= enrolled * y[(c, s)],
                     name=f"cap[{short[c]},{s}]")
                 for r in rooms:
                     m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
@@ -450,7 +483,7 @@ class OptimizerService:
                         "start_slot": start_s, "duration": dur,
                         "day": day_labels[day],
                         "time": f"{slot_starts[session]}-{slot_ends[session + dur - 1]}",
-                        "room": r, "room_cap": rooms[r],
+                        "room": r, "room_cap": rooms[r]["capacity"],
                         "enrolled": info[c]["enrolled_count"],
                         "course_id": info[c]["course_id"],
                         "code": info[c]["code"],
@@ -544,7 +577,7 @@ class OptimizerService:
                 "hard_conflict_pairs": len(hard_pairs),
                 "total_slots": n_slots,
                 "total_rooms": len(ROOMS),
-                "total_room_capacity_per_slot": sum(ROOMS.values()),
+                "total_room_capacity_per_slot": sum(r["capacity"] for r in ROOMS.values()),
                 "max_enrolled_unit": max((info[c]["enrolled_count"], info[c]["code"], info[c]["student_dept"]) for c in C) if C else None,
             },
             "iis_constraints": [],
