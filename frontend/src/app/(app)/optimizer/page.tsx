@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
 import { Card, SL, Spinner, Badge, ErrorBox } from "@/components/ui";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 const IIS_LABELS: Record<string, string> = {
   no_feasible_slot: "Hiçbir sınav için uygun zaman dilimi bulunamadı.",
@@ -60,6 +61,10 @@ export default function OptimizerPage() {
   const [diagSt, setDiagSt] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [diagResult, setDiagResult] = useState<DiagnoseResult | null>(null);
   const [pendingProposedParams, setPendingProposedParams] = useState<Record<string, unknown> | null>(null);
+  // Checkbox state: tracks which LLM changes are selected (by index)
+  const [checkedChanges, setCheckedChanges] = useState<Record<number, boolean>>({});
+  // Custom dialog state
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
 
   const stopPoll = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
@@ -116,13 +121,74 @@ export default function OptimizerPage() {
     setIis([]); setSubErr(""); setDiagSt("idle"); setDiagResult(null);
   };
 
+  const resetFormToDefault = () => {
+    setIsResetConfirmOpen(true);
+  };
+
+  const handleConfirmReset = () => {
+    setParams(p => ({
+      ...p,
+      name: "",
+      hard_threshold: 5,
+      time_limit: null,
+      mip_gap: 0.10,
+      no_back_to_back: false,
+      exam_days: 5,
+      slots_per_day: 20,
+      start_hour: 8,
+      year_order_weight: 100.0,
+      year_order_sequence: null,
+      year_order_weights: null,
+    }));
+    setPendingProposedParams(null);
+    setLlmSt("idle");
+    setLlmResult(null);
+    setCheckedChanges({});
+    setLlmMessage("");
+    setIsResetConfirmOpen(false);
+  };
+
   // LLM: configure
   const askLlm = async () => {
     if (!llmMessage.trim()) return;
-    setLlmSt("loading"); setLlmErr(""); setLlmResult(null);
+    setLlmSt("loading"); setLlmErr("");
     try {
       const res = await api.post("/llm/configure/", { message: llmMessage });
-      setLlmResult(res);
+
+      let newChecked = { ...checkedChanges };
+
+      setLlmResult(prev => {
+        if (!prev) {
+          (res.changes || []).forEach((_: any, i: number) => { newChecked[i] = true; });
+          return res;
+        }
+
+        // If the new request is invalid but we have previous valid changes,
+        // don't overwrite the state and hide the checkboxes. Just add a warning.
+        if (res.is_scheduling_request === false) {
+          return {
+            ...prev,
+            warnings: [...(prev.warnings || []), `Geçersiz İstek: ${res.summary}`]
+          };
+        }
+
+        // Merge with previous results
+        const mergedChanges = [...prev.changes, ...(res.changes || [])];
+        const prevLen = prev.changes.length;
+
+        (res.changes || []).forEach((_: any, i: number) => { newChecked[prevLen + i] = true; });
+
+        return {
+          ...res,
+          changes: mergedChanges,
+          proposed_params: { ...prev.proposed_params, ...res.proposed_params },
+          optimizer_kwargs: { ...prev.optimizer_kwargs, ...res.optimizer_kwargs },
+          warnings: [...(prev.warnings || []), ...(res.warnings || [])]
+        };
+      });
+
+      setCheckedChanges(newChecked);
+      setLlmMessage(""); // Clear input after success
       setLlmSt("done");
     } catch (e: any) {
       setLlmErr(e.data?.error || e.message || "LLM isteği başarısız.");
@@ -130,25 +196,55 @@ export default function OptimizerPage() {
     }
   };
 
-  // LLM: apply proposed params to the form
-  const applyToForm = () => {
-    if (!llmResult?.optimizer_kwargs) return;
-    setPendingProposedParams(llmResult.proposed_params ?? null);
-    const kw = llmResult.optimizer_kwargs as any;
-    setParams(p => ({
-      ...p,
-      ...(kw.hard_threshold !== undefined  && { hard_threshold: kw.hard_threshold }),
-      ...(kw.exam_days      !== undefined  && { exam_days: kw.exam_days }),
-      ...(kw.slots_per_day  !== undefined  && { slots_per_day: kw.slots_per_day }),
-      ...(kw.start_hour     !== undefined  && { start_hour: kw.start_hour }),
-      ...(kw.time_limit     !== undefined  && { time_limit: kw.time_limit }),
-      ...(kw.mip_gap        !== undefined  && { mip_gap: kw.mip_gap }),
-      ...(kw.no_back_to_back  !== undefined && { no_back_to_back: kw.no_back_to_back }),
-      ...(kw.year_order_weight  !== undefined && { year_order_weight: kw.year_order_weight }),
-      ...(kw.year_order_sequence !== undefined && { year_order_sequence: kw.year_order_sequence }),
-      ...(kw.year_order_weights  !== undefined && { year_order_weights: kw.year_order_weights }),
-    }));
-  };
+  // Auto-apply checked LLM changes to the form
+  useEffect(() => {
+    if (!llmResult?.optimizer_kwargs || !llmResult?.changes) return;
+
+    // Build a set of checked change codes
+    const checkedCodes = new Set<string>();
+    llmResult.changes.forEach((ch, i) => {
+      if (checkedChanges[i]) checkedCodes.add(ch.code);
+    });
+
+    // Filter proposed_params to only include checked changes
+    const filteredProposed: Record<string, unknown> = {};
+    if (llmResult.proposed_params) {
+      for (const [key, val] of Object.entries(llmResult.proposed_params)) {
+        if (checkedCodes.has(key)) filteredProposed[key] = val;
+      }
+    }
+    setPendingProposedParams(Object.keys(filteredProposed).length > 0 ? filteredProposed : null);
+
+    // Apply checked LLM parameters to the form fields
+    const kwFieldMap: Record<string, string> = {
+      hard_threshold: "HARD_THRESHOLD",
+      exam_days: "EXAM_DAYS",
+      slots_per_day: "SLOTS_PER_DAY",
+      start_hour: "START_HOUR",
+      time_limit: "TIME_LIMIT",
+      mip_gap: "MIP_GAP",
+      no_back_to_back: "NO_BACK_TO_BACK",
+      year_order_weight: "YEAR_ORDER_WEIGHT",
+      year_order_sequence: "YEAR_ORDER_SEQUENCE",
+      year_order_weights: "YEAR_ORDER_WEIGHTS",
+    };
+
+    setParams(p => {
+      const updated = { ...p };
+      let changed = false;
+      for (const [formKey, code] of Object.entries(kwFieldMap)) {
+        const fullCode = `PARAM_${code}`;
+        // If the LLM proposed this parameter and the user checked it
+        if (filteredProposed[fullCode] !== undefined) {
+          if ((updated as any)[formKey] !== filteredProposed[fullCode]) {
+            (updated as any)[formKey] = filteredProposed[fullCode];
+            changed = true;
+          }
+        }
+      }
+      return changed ? updated : p;
+    });
+  }, [checkedChanges, llmResult]);
 
 
   // LLM: diagnose infeasible
@@ -340,13 +436,6 @@ export default function OptimizerPage() {
               <div style={{ fontSize: 10, color: C.amber, ...mono, letterSpacing: "0.08em", marginBottom: 6 }}>GEÇERSİZ İSTEK</div>
               <p style={{ fontSize: 13, color: C.text, lineHeight: 1.7, margin: 0 }}>{llmResult.summary}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
-              style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", ...mono, fontSize: 11, flexShrink: 0 }}
-            >
-              Kapat
-            </button>
           </div>
         )}
 
@@ -359,22 +448,90 @@ export default function OptimizerPage() {
             borderRadius: 8,
             padding: "14px 16px",
           }}>
-            <div style={{ fontSize: 10, color: C.cyan, ...mono, letterSpacing: "0.08em", marginBottom: 8 }}>AI ÖNERİSİ</div>
-            <p style={{ fontSize: 13, color: C.text, lineHeight: 1.7, marginBottom: 12 }}>{llmResult.summary}</p>
 
-            {/* Change list */}
+            {/* Change list with checkboxes */}
             {llmResult.changes.length > 0 && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 10, color: C.textMuted, ...mono, letterSpacing: "0.08em", marginBottom: 8 }}>YAPILACAK DEĞİŞİKLİKLER</div>
-                {llmResult.changes.map((ch, i) => (
-                  <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
-                    <span style={{ color: C.cyan, fontSize: 12, flexShrink: 0, marginTop: 1 }}>▸</span>
-                    <div>
-                      <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>{ch.code}</span>
-                      <span style={{ fontSize: 12, color: C.text, marginLeft: 8, fontWeight: 600 }}>{typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}</span>
-                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{ch.reason}</div>
-                    </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, ...mono, letterSpacing: "0.08em" }}>
+                    YAPILACAK DEĞİŞİKLİKLER — {Object.values(checkedChanges).filter(Boolean).length}/{llmResult.changes.length} SEÇİLİ
                   </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const all: Record<number, boolean> = {};
+                        llmResult.changes.forEach((_, i) => { all[i] = true; });
+                        setCheckedChanges(all);
+                      }}
+                      style={{ background: "transparent", border: "none", color: C.cyan, cursor: "pointer", ...mono, fontSize: 10, padding: "2px 6px" }}
+                    >
+                      Tümünü Seç
+                    </button>
+                    <span style={{ color: C.border }}>|</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const none: Record<number, boolean> = {};
+                        llmResult.changes.forEach((_, i) => { none[i] = false; });
+                        setCheckedChanges(none);
+                      }}
+                      style={{ background: "transparent", border: "none", color: C.textMuted, cursor: "pointer", ...mono, fontSize: 10, padding: "2px 6px" }}
+                    >
+                      Tümünü Kaldır
+                    </button>
+                  </div>
+                </div>
+                {llmResult.changes.map((ch, i) => (
+                  <label
+                    key={i}
+                    style={{
+                      display: "flex",
+                      gap: 12,
+                      marginBottom: 6,
+                      alignItems: "flex-start",
+                      cursor: "pointer",
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      background: checkedChanges[i]
+                        ? `color-mix(in srgb, ${C.cyan} 6%, transparent)`
+                        : "transparent",
+                      border: `1px solid ${checkedChanges[i] ? `color-mix(in srgb, ${C.cyan} 25%, transparent)` : "transparent"}`,
+                      transition: "all 120ms ease-out",
+                    }}
+                  >
+                    {/* Custom checkbox */}
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        marginTop: 2,
+                        width: 18,
+                        height: 18,
+                        borderRadius: 4,
+                        border: `2px solid ${checkedChanges[i] ? C.cyan : C.border}`,
+                        background: checkedChanges[i] ? C.cyan : "transparent",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 120ms ease-out",
+                      }}
+                    >
+                      {checkedChanges[i] && (
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                          <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      )}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={!!checkedChanges[i]}
+                      onChange={() => setCheckedChanges(prev => ({ ...prev, [i]: !prev[i] }))}
+                      style={{ display: "none" }}
+                    />
+                    <div style={{ flex: 1, opacity: checkedChanges[i] ? 1 : 0.5, transition: "opacity 120ms ease-out", display: "flex", alignItems: "center", minHeight: 18 }}>
+                      <span style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{ch.reason}</span>
+                    </div>
+                  </label>
                 ))}
               </div>
             )}
@@ -388,23 +545,6 @@ export default function OptimizerPage() {
               </div>
             )}
 
-            {/* Action buttons */}
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={applyToForm}
-                style={{ background: "var(--surface)", color: C.cyan, border: `1px solid color-mix(in srgb, ${C.cyan} 40%, transparent)`, borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 600 }}
-              >
-                Forma Uygula
-              </button>
-              <button
-                type="button"
-                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
-                style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}
-              >
-                Kapat
-              </button>
-            </div>
           </div>
         )}
       </Card>
@@ -540,7 +680,23 @@ export default function OptimizerPage() {
         >
           {isRunning ? <><Spinner size={14} color={C.accent} /> Çalışıyor…</> : "▶  Optimizasyonu Başlat"}
         </button>
+        <button
+          type="button"
+          onClick={resetFormToDefault} disabled={isRunning}
+          style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 8, padding: "13px 24px", cursor: isRunning ? "not-allowed" : "pointer", ...mono, fontSize: 13, fontWeight: 600, transition: "all 0.2s" }}
+        >
+          ⟲ Tüm Ayarları Sıfırla
+        </button>
       </div>
+
+      <ConfirmDialog
+        open={isResetConfirmOpen}
+        onOpenChange={setIsResetConfirmOpen}
+        title="Tüm Ayarları Sıfırla"
+        description="Tüm form ayarlarını, LLM değişikliklerini ve optimizasyon kısıtlarını varsayılan (orijinal) fabrika ayarlarına döndürmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+        confirmLabel="Evet, Sıfırla"
+        onConfirm={handleConfirmReset}
+      />
     </div>
   );
 }
