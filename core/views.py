@@ -606,8 +606,20 @@ class OptimizerViewSet(viewsets.ViewSet):
         )
         
         from .tasks import run_optimizer_task
-        run_optimizer_task.delay(str(solution.id))
-        
+        user_time_limit = data.get('time_limit')
+        # Hard Celery kill: 3× the user's time limit (generous for build overhead),
+        # capped at 3600 s. Soft limit fires 60 s before hard kill.
+        if user_time_limit:
+            hard_limit = min(user_time_limit * 3, 3600)
+            soft_limit = hard_limit - 60
+            run_optimizer_task.apply_async(
+                args=[str(solution.id)],
+                soft_time_limit=soft_limit,
+                time_limit=hard_limit,
+            )
+        else:
+            run_optimizer_task.delay(str(solution.id))
+
         return Response({
             "message": "Optimizasyon Celery üzerinden başlatıldı. Sonuçları DB üzerinden takip edebilirsiniz.",
             "task_id": str(solution.id)
@@ -966,7 +978,16 @@ class LLMConfirmView(APIView):
         )
 
         from .tasks import run_optimizer_task
-        run_optimizer_task.delay(str(solution.id))
+        user_time_limit = optimizer_kwargs.get('time_limit')
+        if user_time_limit:
+            hard_limit = min(user_time_limit * 3, 3600)
+            run_optimizer_task.apply_async(
+                args=[str(solution.id)],
+                soft_time_limit=hard_limit - 60,
+                time_limit=hard_limit,
+            )
+        else:
+            run_optimizer_task.delay(str(solution.id))
 
         return Response(
             {

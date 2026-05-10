@@ -1,4 +1,5 @@
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 import logging
 import traceback
 from .models import GeneratedSolution
@@ -85,6 +86,15 @@ def run_optimizer_task(self, solution_id: str):
 
         logger.info(f"Optimizer done. Status: {solution.status}")
         return {"status": solution.status, "score": solution.score}
+
+    except SoftTimeLimitExceeded:
+        logger.error(f"Celery soft time limit exceeded for solution {solution_id}")
+        solution = GeneratedSolution.objects.filter(id=solution_id).first()
+        if solution:
+            solution.status = 'FAILED'
+            solution.error_message = "Task killed by Celery soft time limit (total wall time exceeded)."
+            solution.save()
+        raise
 
     except Exception as e:
         logger.error(f"Optimization failed for {solution_id}: {str(e)}\n{traceback.format_exc()}")

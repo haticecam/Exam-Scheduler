@@ -241,6 +241,30 @@ class OptimizerService:
 
         logger.info(f"Optimizer: {len(C)} scheduling units, {len(conflicts)} conflict pairs, {len(ROOMS)} rooms")
 
+        def _overtime() -> bool:
+            return time_limit is not None and (time.perf_counter() - t_wall_start) >= time_limit
+
+        def _build_timeout_result() -> dict:
+            elapsed = round(time.perf_counter() - t_wall_start, 2)
+            logger.warning(f"Time limit exceeded during model build at {elapsed}s total")
+            return {
+                "schedule": [], "penalties": [],
+                "stats": {
+                    "scheduling_units": len(info),
+                    "conflicts_total": len(conflicts),
+                    "hard_conflict_pairs": 0,
+                    "obj_value": None, "total_penalty": 0,
+                    "build_time_s": elapsed, "solve_time_s": 0,
+                },
+                "status": "feasible (time limit)",
+                "diagnostics": {
+                    "summary": (
+                        "Time limit exceeded while building the MIP model. "
+                        "Try increasing time_limit, raising hard_threshold, or reducing problem size."
+                    )
+                },
+            }
+
         for c in C:
             hours = info[c].get("weekly_hours") or 0
             # Exam lengths in minutes: ≤2 weekly hours→60 min, 3→120 min, ≥4→180 min
@@ -287,11 +311,15 @@ class OptimizerService:
 
         y = {}
         for c in C:
+            if _overtime():
+                return _build_timeout_result()
             for s in valid_starts(c):
                 y[(c, s)] = m.addVar(vtype=GRB.BINARY, name=f"y[{short[c]},{s}]")
 
         x_start = {}
         for c in C:
+            if _overtime():
+                return _build_timeout_result()
             for r in rooms:
                 for s in valid_starts(c):
                     x_start[(c, r, s)] = m.addVar(vtype=GRB.BINARY, name=f"x[{short[c]},{r},{s}]")
@@ -320,10 +348,14 @@ class OptimizerService:
         m.update()
 
         for c in C:
+            if _overtime():
+                return _build_timeout_result()
             m.addConstr(quicksum(y[(c, s)] for s in valid_starts(c)) == 1,
                         name=f"one_start[{short[c]}]")
 
         for c in C:
+            if _overtime():
+                return _build_timeout_result()
             enrolled = info[c]["enrolled_count"]
             for s in valid_starts(c):
                 m.addConstr(
@@ -338,6 +370,8 @@ class OptimizerService:
             return quicksum(y[(c, s)] for s in valid_starts(c) if s <= t < s + dur)
 
         for r in rooms:
+            if _overtime():
+                return _build_timeout_result()
             for t in range(n_slots):
                 occupied = quicksum(
                     x_start[(c, r, s)] for c in C
@@ -348,6 +382,8 @@ class OptimizerService:
 
         hard_pairs = set()
         for (ua, ub), shared in conflicts.items():
+            if _overtime():
+                return _build_timeout_result()
             if ua not in info or ub not in info:
                 continue
             if shared <= hard_threshold:
@@ -389,6 +425,8 @@ class OptimizerService:
         conflict_vars = []
         # A. Student Overlap Penalty (Same slot overlap)
         for (ua, ub), shared in conflicts.items():
+            if _overtime():
+                return _build_timeout_result()
             if shared > hard_threshold or ua not in info or ub not in info:
                 continue
 
