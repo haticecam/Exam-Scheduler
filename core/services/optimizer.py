@@ -219,6 +219,8 @@ class OptimizerService:
         raw_ydf = wc.get("YEAR_DIFF_FACTOR", YEAR_DIFF_FACTOR)
         year_diff_factor = {int(k): v for k, v in raw_ydf.items()}
 
+        t_wall_start = time.perf_counter()  # tracks total elapsed including data load + build
+
         ROOMS = self.load_rooms()
 
         rooms = ROOMS
@@ -452,13 +454,24 @@ class OptimizerService:
             GRB.MINIMIZE)
         m.Params.MIPGap = mip_gap
         m.Params.MIPFocus = 1
-        m.Params.NoRelHeurTime = 120
         t_build_end = time.perf_counter()
         build_time = round(t_build_end - t_build_start, 2)
         logger.info(f"Model build complete in {build_time}s — {m.NumVars} vars, {m.NumConstrs} constraints")
 
         if time_limit is not None:
-            m.Params.TimeLimit = time_limit
+            # Deduct data-load + build time from the user's total budget so that
+            # the full wall-clock time of solve() doesn't exceed time_limit.
+            elapsed = t_build_end - t_wall_start
+            gurobi_budget = max(time_limit - elapsed, 10.0)
+            m.Params.TimeLimit = gurobi_budget
+            # NoRelHeurTime must fit inside the Gurobi budget (cap at 25 %).
+            m.Params.NoRelHeurTime = min(120.0, gurobi_budget * 0.25)
+            logger.info(
+                f"Time budget: {time_limit}s total, {elapsed:.1f}s load+build, "
+                f"{gurobi_budget:.1f}s for Gurobi ({m.Params.NoRelHeurTime:.0f}s heuristic)"
+            )
+        else:
+            m.Params.NoRelHeurTime = 120
 
         t_solve_start = time.perf_counter()
         m.optimize()
@@ -466,6 +479,31 @@ class OptimizerService:
         solve_time = round(t_solve_end - t_solve_start, 2)
 
         if m.SolCount == 0:
+            # If we hit the time limit without finding any solution, return a
+            # lightweight timeout result instead of running IIS (which has no
+            # timeout and can hang for large models).
+            if m.Status == GRB.TIME_LIMIT:
+                wall_total = round(t_solve_end - t_wall_start, 1)
+                logger.warning(f"Time limit reached with no solution found (wall {wall_total}s)")
+                return {
+                    "schedule": [], "penalties": [],
+                    "stats": {
+                        "scheduling_units": len(info),
+                        "conflicts_total": len(conflicts),
+                        "hard_conflict_pairs": len(hard_pairs),
+                        "obj_value": None,
+                        "total_penalty": 0,
+                        "build_time_s": build_time,
+                        "solve_time_s": solve_time,
+                    },
+                    "status": "feasible (time limit)",
+                    "diagnostics": {
+                        "summary": (
+                            "No feasible solution found within the time limit. "
+                            "Try: increase time_limit, raise hard_threshold, add more exam days."
+                        )
+                    },
+                }
             return self._build_infeasible_result(m, C, info, conflicts, hard_pairs, n_slots, short, ROOMS, build_time, solve_time)
 
         schedule = []
