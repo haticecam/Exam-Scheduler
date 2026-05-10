@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource
+from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource, TermResource
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -10,8 +10,32 @@ class OrganizationSerializer(serializers.ModelSerializer):
 class ResourceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resource
-        fields = '__all__'
+        fields = ['id', 'organization', 'name', 'type', 'full_capacity', 'exam_capacity', 'attributes', 'is_active']
         read_only_fields = ['id']
+
+
+class TermResourceSerializer(serializers.ModelSerializer):
+    effective_exam_capacity = serializers.SerializerMethodField()
+    restricted_to_units = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=AcademicUnit.objects.all(),
+        required=False,
+    )
+
+    class Meta:
+        model = TermResource
+        fields = [
+            'id', 'resource', 'term',
+            'full_capacity', 'exam_capacity', 'effective_exam_capacity',
+            'available_days', 'restricted_to_units',
+            'is_active', 'notes',
+        ]
+        read_only_fields = ['id', 'effective_exam_capacity']
+
+    def get_effective_exam_capacity(self, obj: TermResource) -> int | None:
+        if obj.exam_capacity is not None:
+            return obj.exam_capacity
+        return obj.resource.exam_capacity
 
 class CourseCatalogSerializer(serializers.ModelSerializer):
     class Meta:
