@@ -67,25 +67,47 @@ class OptimizerService:
 
     def load_rooms(self) -> dict[str, int]:
         """
-        Load active exam rooms for this term's organization from the Resource table.
-        Returns dict: room_name → capacity.
-        Raises ValueError if no rooms are configured.
+        Load active exam rooms for this term.
+
+        Uses TermResource per-term overrides when they exist, otherwise falls back
+        to the org-level Resource.exam_capacity. A room with an explicit inactive
+        TermResource is excluded even if the base Resource is active.
+
+        Returns dict: room_name → effective exam_capacity.
+        Raises ValueError if no rooms are available.
         """
-        from core.models import Term, Resource
+        from core.models import Term, Resource, TermResource
         try:
             term = Term.objects.select_related('organization').get(id=self.term_id)
         except Term.DoesNotExist:
             raise ValueError(f"Term {self.term_id} not found.")
 
-        resources = Resource.objects.filter(
+        # Build a per-room override map from TermResource (active + inactive)
+        term_resource_map: dict = {
+            tr.resource_id: tr
+            for tr in TermResource.objects.filter(term=term).select_related('resource')
+        }
+
+        # Walk all org-level active CLASSROOM rooms and apply overrides
+        base_rooms = Resource.objects.filter(
             organization=term.organization,
             type='CLASSROOM',
             is_active=True,
-            capacity__isnull=False
-        ).values('name', 'capacity')
+            exam_capacity__isnull=False,
+        )
 
-        # Divide by 3: rooms are used in exam shifts, so effective capacity per shift is capacity // 3
-        rooms = {r['name']: r['capacity'] // 3 for r in resources}
+        rooms: dict[str, int] = {}
+        for r in base_rooms:
+            tr = term_resource_map.get(r.id)
+            if tr is not None:
+                if not tr.is_active:
+                    continue  # explicitly disabled for this term
+                cap = tr.exam_capacity if tr.exam_capacity is not None else r.exam_capacity
+            else:
+                cap = r.exam_capacity
+            if cap is not None:
+                rooms[r.name] = cap
+
         if not rooms:
             raise ValueError(
                 f"No active CLASSROOM resources found for organization '{term.organization.name}'. "
