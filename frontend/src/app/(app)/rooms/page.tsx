@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
 import { Card, SL, Spinner, InfoBox, PageContainer, PageHeader, DataTable, DataRow, DataCell, ActionButton } from "@/components/ui";
@@ -21,6 +21,14 @@ const ROOM_TYPES = [
   { value: "AMPHITHEATER", label: "Amfi" },
 ];
 
+function defaultExamCapacity(type: string, capacity: string): string {
+  const cap = parseInt(capacity);
+  if (isNaN(cap) || cap <= 0) return "";
+  if (type === "CLASSROOM") return String(Math.floor(cap / 2));
+  if (type === "AMPHITHEATER") return String(Math.floor(cap / 3));
+  return "";
+}
+
 export default function RoomsPage() {
   const { data, loading, refetch } = useFetch("/resources/");
   const rooms = data?.results || data || [];
@@ -29,14 +37,21 @@ export default function RoomsPage() {
   const [name, setName] = useState("");
   const [capacity, setCapacity] = useState("");
   const [type, setType] = useState("CLASSROOM");
+  const [examCapacity, setExamCapacity] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  // Auto-calculate examCapacity when type or capacity changes in create form
+  useEffect(() => {
+    setExamCapacity(defaultExamCapacity(type, capacity));
+  }, [type, capacity]);
 
   // Edit dialog
   const [editRoom, setEditRoom] = useState<any>(null);
   const [editName, setEditName] = useState("");
   const [editCapacity, setEditCapacity] = useState("");
   const [editType, setEditType] = useState("CLASSROOM");
+  const [editExamCapacity, setEditExamCapacity] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState("");
 
@@ -52,9 +67,17 @@ export default function RoomsPage() {
     try {
       const orgData = await api.get("/organizations/");
       const orgId = orgData?.[0]?.id || orgData?.results?.[0]?.id;
-      await api.post("/resources/", { name, capacity: parseInt(capacity), type, organization: orgId });
+      const payload: Record<string, unknown> = {
+        name,
+        capacity: parseInt(capacity),
+        type,
+        organization: orgId,
+      };
+      if (examCapacity !== "") payload.exam_capacity = parseInt(examCapacity);
+      await api.post("/resources/", payload);
       setName("");
       setCapacity("");
+      setExamCapacity("");
       refetch();
     } catch (err: any) {
       setSaveError(err.message || "Oda eklenemedi.");
@@ -66,8 +89,9 @@ export default function RoomsPage() {
   const openEdit = (room: any) => {
     setEditRoom(room);
     setEditName(room.name);
-    setEditCapacity(String(room.capacity));
+    setEditCapacity(String(room.capacity ?? ""));
     setEditType(room.type);
+    setEditExamCapacity(room.exam_capacity != null ? String(room.exam_capacity) : "");
     setEditError("");
   };
 
@@ -76,11 +100,13 @@ export default function RoomsPage() {
     setEditLoading(true);
     setEditError("");
     try {
-      await api.patch(`/resources/${editRoom.id}/`, {
+      const payload: Record<string, unknown> = {
         name: editName,
         capacity: parseInt(editCapacity),
         type: editType,
-      });
+      };
+      if (editExamCapacity !== "") payload.exam_capacity = parseInt(editExamCapacity);
+      await api.patch(`/resources/${editRoom.id}/`, payload);
       refetch();
       setEditRoom(null);
     } catch (err: any) {
@@ -134,6 +160,19 @@ export default function RoomsPage() {
                 </select>
               </div>
             </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>SINAV KAPASİTESİ</label>
+              <input
+                type="number"
+                value={examCapacity}
+                onChange={e => setExamCapacity(e.target.value)}
+                placeholder="Otomatik hesaplanır"
+                style={inputStyle}
+              />
+              <p style={{ fontSize: 11, color: C.textMuted, marginTop: 4, marginBottom: 0 }}>
+                Derslik: kapasite / 2 · Amfi: kapasite / 3 (değiştirilebilir)
+              </p>
+            </div>
             {saveError && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{saveError}</p>}
             <ActionButton disabled={saving || !name || !capacity} icon="+">
               {saving ? "Ekleniyor..." : "Odayı Kaydet"}
@@ -142,9 +181,9 @@ export default function RoomsPage() {
         </Card>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <DataTable headers={["Oda Adı", "Tür", "Kapasite", "İşlemler"]}>
-            {loading && <DataRow><DataCell colSpan={4} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell></DataRow>}
-            {!loading && rooms.length === 0 && <DataRow><DataCell colSpan={4}><InfoBox msg="Henüz hiç oda eklenmemiş." /></DataCell></DataRow>}
+          <DataTable headers={["Oda Adı", "Tür", "Kapasite", "Sınav Kap.", "İşlemler"]}>
+            {loading && <DataRow><DataCell colSpan={5} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell></DataRow>}
+            {!loading && rooms.length === 0 && <DataRow><DataCell colSpan={5}><InfoBox msg="Henüz hiç oda eklenmemiş." /></DataCell></DataRow>}
             {rooms.map((room: any) => (
               <DataRow key={room.id}>
                 <DataCell style={{ fontWeight: 600 }}>{room.name}</DataCell>
@@ -152,6 +191,9 @@ export default function RoomsPage() {
                   <span style={{ fontSize: 11, background: C.cyanSoft, color: C.cyan, padding: "4px 8px", borderRadius: 4, ...mono }}>{room.type}</span>
                 </DataCell>
                 <DataCell style={{ color: C.textSub, ...mono }}>{room.capacity} Kişi</DataCell>
+                <DataCell style={{ color: C.textSub, ...mono }}>
+                  {room.exam_capacity != null ? `${room.exam_capacity} Kişi` : "—"}
+                </DataCell>
                 <DataCell>
                   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                     <ActionButton onClick={() => openEdit(room)} variant="secondary">Düzenle</ActionButton>
@@ -201,6 +243,16 @@ export default function RoomsPage() {
                   {ROOM_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                 </select>
               </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-room-exam-cap">Sınav Kapasitesi</Label>
+              <Input
+                id="edit-room-exam-cap"
+                type="number"
+                value={editExamCapacity}
+                onChange={e => setEditExamCapacity(e.target.value)}
+                placeholder="Sınav kapasitesi"
+              />
             </div>
             {editError && <p className="text-sm text-destructive">{editError}</p>}
           </div>
