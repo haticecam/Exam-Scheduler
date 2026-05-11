@@ -70,7 +70,10 @@ def _extract_title(name: str) -> str:
 
 class CourseLoaderService:
     def process_csv(self, file_content: str, term_id: str):
-        reader = csv.DictReader(file_content.splitlines())
+        lines = file_content.splitlines()
+        header = lines[0] if lines else ""
+        delimiter = "\t" if "\t" in header else ","
+        reader = csv.DictReader(lines, delimiter=delimiter)
         rows = [CourseRow.from_dict(r) for r in reader if r.get("Course Name", "").strip()]
 
         if not rows:
