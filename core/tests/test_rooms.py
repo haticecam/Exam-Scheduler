@@ -66,5 +66,89 @@ def test_optimizer_raises_when_no_rooms(org):
     term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
 
     svc = OptimizerService(term_id=str(term.id))
-    with pytest.raises(ValueError, match="No active CLASSROOM resources"):
+    with pytest.raises(ValueError, match="No active exam rooms"):
         svc.load_rooms()
+
+
+# ── Exam Capacity: model defaults via seed_rooms ────────────────────────
+
+@pytest.mark.django_db
+def test_seed_rooms_sets_exam_capacity_classroom(org):
+    """seed_rooms must set exam_capacity = capacity // 2 for CLASSROOM rooms."""
+    call_command('seed_rooms', org_id=str(org.id))
+    room = Resource.objects.get(organization=org, name='CZ08-09', type='CLASSROOM')
+    assert room.exam_capacity == 66  # 132 // 2
+
+
+@pytest.mark.django_db
+def test_seed_rooms_correct_capacity_unchanged(org):
+    """seed_rooms must not change the raw capacity field."""
+    call_command('seed_rooms', org_id=str(org.id))
+    room = Resource.objects.get(organization=org, name='CZ08-09', type='CLASSROOM')
+    assert room.capacity == 132
+
+
+# ── Exam Capacity: serializer auto-calc ────────────────────────────────
+
+from core.serializers import ResourceSerializer
+
+
+@pytest.mark.django_db
+def test_serializer_auto_calc_exam_capacity_classroom(org):
+    """ResourceSerializer.create() must set exam_capacity = capacity // 2 for CLASSROOM."""
+    data = {
+        'organization': str(org.id),
+        'name': 'TEST-CLASS',
+        'type': 'CLASSROOM',
+        'capacity': 100,
+    }
+    serializer = ResourceSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    instance = serializer.save()
+    assert instance.exam_capacity == 50  # 100 // 2
+
+
+@pytest.mark.django_db
+def test_serializer_auto_calc_exam_capacity_amphitheater(org):
+    """ResourceSerializer.create() must set exam_capacity = capacity // 3 for AMPHITHEATER."""
+    data = {
+        'organization': str(org.id),
+        'name': 'TEST-AMFI',
+        'type': 'AMPHITHEATER',
+        'capacity': 120,
+    }
+    serializer = ResourceSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    instance = serializer.save()
+    assert instance.exam_capacity == 40  # 120 // 3
+
+
+@pytest.mark.django_db
+def test_serializer_explicit_exam_capacity_overrides_default(org):
+    """Explicitly providing exam_capacity must bypass the auto-calculation."""
+    data = {
+        'organization': str(org.id),
+        'name': 'TEST-OVERRIDE',
+        'type': 'CLASSROOM',
+        'capacity': 100,
+        'exam_capacity': 99,
+    }
+    serializer = ResourceSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    instance = serializer.save()
+    assert instance.exam_capacity == 99
+
+
+# ── Exam Capacity: optimizer ────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_optimizer_uses_exam_capacity_field(org):
+    """OptimizerService.load_rooms() must return exam_capacity values, not capacity // 3."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+
+    # CZ08-09 has capacity=132; exam_capacity should be 132 // 2 = 66, NOT 132 // 3 = 44
+    assert rooms['CZ08-09'] == 66
