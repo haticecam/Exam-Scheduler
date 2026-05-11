@@ -79,16 +79,15 @@ class OptimizerService:
 
         resources = Resource.objects.filter(
             organization=term.organization,
-            type='CLASSROOM',
+            type__in=['CLASSROOM', 'AMPHITHEATER'],
             is_active=True,
-            capacity__isnull=False
-        ).values('name', 'capacity')
+            exam_capacity__isnull=False
+        ).values('name', 'exam_capacity')
 
-        # Divide by 3: rooms are used in exam shifts, so effective capacity per shift is capacity // 3
-        rooms = {r['name']: r['capacity'] // 3 for r in resources}
+        rooms = {r['name']: r['exam_capacity'] for r in resources}
         if not rooms:
             raise ValueError(
-                f"No active CLASSROOM resources found for organization '{term.organization.name}'. "
+                f"No active exam rooms found for organization '{term.organization.name}'. "
                 f"Run: python manage.py seed_rooms --org_id {term.organization.id}"
             )
         return rooms
