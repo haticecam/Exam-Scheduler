@@ -224,7 +224,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 organization=org,
                 name=name,
                 type='CLASSROOM',
-                defaults={'capacity': capacity, 'is_active': True}
+                defaults={
+                    'capacity': capacity,
+                    'exam_capacity': capacity // 2,
+                    'is_active': True,
+                }
             )
             if was_created:
                 created += 1
