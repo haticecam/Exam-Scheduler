@@ -1,9 +1,7 @@
 import csv
 import re
-import uuid
-import json
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from django.db import transaction
@@ -16,7 +14,7 @@ from ..models import (
 @dataclass
 class CourseRow:
     course_name: str
-    course_code: Optional[str]
+    course_code: str  # required — never empty after validation
     capacity: Optional[int]
     program: str
     instructor: str
@@ -38,13 +36,16 @@ class CourseRow:
         except ValueError:
             capacity = None
 
+        mandatory_raw = str(d.get("Mandatory", "")).strip()
+        is_compulsory = mandatory_raw in ("1", "True", "true", "Yes", "yes", "__1")
+
         return CourseRow(
             course_name=str(d.get("Course Name", "")).strip(),
-            course_code=str(d.get("Code") or d.get("Course Code") or "").strip() or None,
+            course_code=str(d.get("Course Code", "")).strip(),
             capacity=capacity,
             program=str(d.get("Program", "")).strip(),
             instructor=str(d.get("Instructor", "")).strip(),
-            is_compulsory=str(d.get("Mandatory", "")).strip() == "__1",
+            is_compulsory=is_compulsory,
             year_level=_int(d.get("Year"), default=1),
             weekly_hours=_int(d.get("T-hours"), default=0),
         )
@@ -55,10 +56,6 @@ def slugify(text: str, max_len: int = 32) -> str:
     text = re.sub(r'[^A-Z0-9\s]', ' ', text)
     text = re.sub(r'\s+', '_', text.strip())
     return text[:max_len]
-
-def make_course_code(course_name: str) -> str:
-    words = re.sub(r'[^A-Z0-9\s]', ' ', course_name.upper()).split()
-    return '_'.join(words[:4])[:32]
 
 def make_unit_code(program_name: str) -> str:
     return slugify(program_name, max_len=24)
@@ -78,6 +75,11 @@ class CourseLoaderService:
 
         if not rows:
             return {"error": "CSV is empty or missing 'Course Name' header"}
+
+        missing_code = [r.course_name for r in rows if not r.course_code]
+        if missing_code:
+            names = ", ".join(missing_code[:5])
+            return {"error": f"'Course Code' is required for every row. Missing for: {names}"}
 
         try:
             term = Term.objects.get(id=term_id)
@@ -126,16 +128,15 @@ class CourseLoaderService:
                 )
                 sg_seen.add(key)
 
-        # 4. Course Catalog
+        # 4. Course Catalog — use course_code directly from CSV
         course_map = {}
         for r in rows:
             unit_id = unit_map[r.program].id
-            code = r.course_code or make_course_code(r.course_name)
-            key = (unit_id, code)
+            key = (unit_id, r.course_code)
             if key not in course_map:
                 req = "COMPULSORY" if r.is_compulsory else "ELECTIVE"
                 course, _ = CourseCatalog.objects.get_or_create(
-                    organization=org, academic_unit_id=unit_id, code=code,
+                    organization=org, academic_unit_id=unit_id, code=r.course_code,
                     defaults={"name": r.course_name, "year_level": r.year_level,
                               "weekly_hours_lecture": r.weekly_hours, "requirement": req}
                 )
@@ -146,8 +147,7 @@ class CourseLoaderService:
         sections_created = 0
         for r in rows:
             unit_id = unit_map[r.program].id
-            code = r.course_code or make_course_code(r.course_name)
-            course = course_map[(unit_id, code)]
+            course = course_map[(unit_id, r.course_code)]
             instr = instr_map[(unit_id, r.instructor)]
 
             section_counter[(unit_id, course.id)] += 1
@@ -164,7 +164,6 @@ class CourseLoaderService:
                 defaults={"max_enrollment": max_enroll, "version": 1}
             )
             sections_created += 1
-
 
         return {
             "success": True,
