@@ -1,4 +1,5 @@
 import csv
+import io
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -68,14 +69,59 @@ def _extract_title(name: str) -> str:
             return t
     return ""
 
-class CourseLoaderService:
-    def process_csv(self, file_content: str, term_id: str):
-        lines = file_content.splitlines()
-        header = lines[0] if lines else ""
-        delimiter = "\t" if "\t" in header else ","
-        reader = csv.DictReader(lines, delimiter=delimiter)
-        rows = [CourseRow.from_dict(r) for r in reader if r.get("Course Name", "").strip()]
+def _rows_from_csv_text(file_content: str) -> list:
+    lines = file_content.splitlines()
+    header = lines[0] if lines else ""
+    delimiter = "\t" if "\t" in header else ","
+    reader = csv.DictReader(lines, delimiter=delimiter)
+    return [CourseRow.from_dict(r) for r in reader if r.get("Course Name", "").strip()]
 
+def _rows_from_xlsx_bytes(raw: bytes) -> list:
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    ws = wb.active
+    all_rows = list(ws.iter_rows(values_only=True))
+    wb.close()
+
+    if not all_rows:
+        return []
+
+    header = [str(c).strip() if c is not None else "" for c in all_rows[0]]
+    result = []
+    for row in all_rows[1:]:
+        d = {header[i]: (str(row[i]).strip() if i < len(row) and row[i] is not None else "")
+             for i in range(len(header))}
+        if d.get("Course Name", "").strip():
+            result.append(CourseRow.from_dict(d))
+    return result
+
+class CourseLoaderService:
+
+    def process_file(self, raw: bytes, filename: str, term_id: str) -> dict:
+        """Unified entry point — accepts .xlsx or .csv/.tsv bytes."""
+        if filename.lower().endswith(".xlsx"):
+            try:
+                rows = _rows_from_xlsx_bytes(raw)
+            except Exception as e:
+                return {"error": f"XLSX dosyası okunamadı: {str(e)}"}
+        else:
+            try:
+                file_content = raw.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                try:
+                    file_content = raw.decode("latin-1")
+                except UnicodeDecodeError:
+                    return {"error": "Dosya kodlaması okunamadı. Lütfen UTF-8 formatında kaydedin."}
+            rows = _rows_from_csv_text(file_content)
+
+        return self._validate_and_process(rows, term_id)
+
+    def process_csv(self, file_content: str, term_id: str) -> dict:
+        """CSV string entry point — kept for backward compatibility with tests."""
+        rows = _rows_from_csv_text(file_content)
+        return self._validate_and_process(rows, term_id)
+
+    def _validate_and_process(self, rows: list, term_id: str) -> dict:
         if not rows:
             return {"error": "CSV is empty or missing 'Course Name' header"}
 
@@ -131,7 +177,7 @@ class CourseLoaderService:
                 )
                 sg_seen.add(key)
 
-        # 4. Course Catalog — use course_code directly from CSV
+        # 4. Course Catalog — use course_code directly from file
         course_map = {}
         for r in rows:
             unit_id = unit_map[r.program].id
