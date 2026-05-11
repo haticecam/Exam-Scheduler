@@ -57,7 +57,7 @@ def test_optimizer_loads_rooms_from_db(org):
 
     assert len(rooms) == 24
     assert 'CZ08-09' in rooms
-    assert rooms['CZ08-09'] == 44  # 132 // 3 (shift capacity)
+    assert rooms['CZ08-09'] == 66  # 132 // 2 (exam_capacity for CLASSROOM)
 
 
 @pytest.mark.django_db
