@@ -151,20 +151,20 @@ class CourseCatalogViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        file_content = file.read().decode('utf-8')
-        service = CourseLoaderService()
-        result = service.process_csv(
-            file_content,
-            term_id=str(term_id)
-        )
+        raw = file.read()
+        try:
+            result = CourseLoaderService().process_file(raw, file.name, term_id=str(term_id))
+        except Exception as e:
+            logger.exception("Unexpected error in course upload")
+            return Response(
+                {"error": f"İşlem sırasında beklenmeyen bir hata oluştu: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         if "error" in result:
             return Response(result, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            result,
-            status=status.HTTP_201_CREATED
-        )
+        return Response(result, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['delete'], url_path='deleteAll')
     def delete_all(self, request):
