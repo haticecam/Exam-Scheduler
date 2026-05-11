@@ -23,8 +23,8 @@ def active_term(org):
 def test_course_loader_atomic_rollback_on_error(org, active_term):
     """If CourseLoaderService fails midway, no partial data should be committed."""
     csv_data = (
-        "Course Name,Capacity,Program,Instructor,Mandatory,Year,T-hours\n"
-        "Calculus I,50,Math,Dr. Smith,__1,1,4\n"
+        "Course Code,Course Name,Capacity,Program,Instructor,Mandatory,Year,T-hours\n"
+        "CALC1,Calculus I,50,Math,Dr. Smith,1,1,4\n"
     )
     from core.services.course_loader import CourseLoaderService
 
@@ -42,9 +42,9 @@ def test_course_loader_atomic_rollback_on_error(org, active_term):
 def test_course_loader_success(org, active_term):
     """CourseLoaderService processes a valid CSV and creates the expected records."""
     csv_data = (
-        "Course Name,Capacity,Program,Instructor,Mandatory,Year,T-hours\n"
-        "Calculus I,50,Computer Engineering,Dr. Smith,__1,1,4\n"
-        "Physics I,40,Computer Engineering,Dr. Jones,,1,3\n"
+        "Course Code,Course Name,Capacity,Program,Instructor,Mandatory,Year,T-hours\n"
+        "CE101,Calculus I,50,Computer Engineering,Dr. Smith,1,1,4\n"
+        "CE102,Physics I,40,Computer Engineering,Dr. Jones,,1,3\n"
     )
     from core.services.course_loader import CourseLoaderService
     service = CourseLoaderService()
@@ -54,6 +54,33 @@ def test_course_loader_success(org, active_term):
     assert AcademicUnit.objects.filter(organization=org, name="Computer Engineering").exists()
     assert CourseCatalog.objects.filter(organization=org).count() == 2
     assert CourseSection.objects.filter(term=active_term).count() == 2
+
+
+@pytest.mark.django_db
+def test_course_loader_rejects_missing_course_code(org, active_term):
+    """Rows without a Course Code must be rejected — no auto-generation allowed."""
+    csv_data = (
+        "Course Code,Course Name,Capacity,Program,Instructor,Mandatory,Year,T-hours\n"
+        ",Calculus I,50,Math,Dr. Smith,1,1,4\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert "error" in result
+    assert CourseCatalog.objects.filter(organization=org).count() == 0
+
+
+@pytest.mark.django_db
+def test_course_loader_uses_csv_course_code(org, active_term):
+    """The course code stored in the DB must match exactly what is in the CSV."""
+    csv_data = (
+        "Course Code,Course Name,Capacity,Program,Instructor,Mandatory,Year,T-hours\n"
+        "CS101,Calculus I,50,Math,Dr. Smith,1,1,4\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True
+    course = CourseCatalog.objects.get(organization=org)
+    assert course.code == "CS101"
 
 
 # --- DemoUpdaterService ---
