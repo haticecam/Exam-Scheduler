@@ -29,9 +29,27 @@ function defaultExamCapacity(type: string, capacity: string): string {
   return "";
 }
 
+const DAYS = [
+  { key: "Mon", label: "Pzt" },
+  { key: "Tue", label: "Sal" },
+  { key: "Wed", label: "Çar" },
+  { key: "Thu", label: "Per" },
+  { key: "Fri", label: "Cum" },
+  { key: "Sat", label: "Cmt" },
+  { key: "Sun", label: "Paz" },
+];
+
+function toggleItem(key: string, current: string[]): string[] {
+  return current.includes(key) ? current.filter(d => d !== key) : [...current, key];
+}
+
 export default function RoomsPage() {
   const { data, loading, refetch } = useFetch("/resources/");
   const rooms = data?.results || data || [];
+
+  // Academic units for availability selector
+  const { data: unitsData } = useFetch("/academic-units/");
+  const academicUnits: { id: string; name: string }[] = unitsData?.results || unitsData || [];
 
   // Add form
   const [name, setName] = useState("");
@@ -40,6 +58,10 @@ export default function RoomsPage() {
   const [examCapacity, setExamCapacity] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  // Availability state — create form
+  const [allowedDays, setAllowedDays] = useState<string[]>([]);
+  const [allowedUnitIds, setAllowedUnitIds] = useState<string[]>([]);
 
   // Auto-calculate examCapacity when type or capacity changes in create form
   useEffect(() => {
@@ -72,15 +94,21 @@ export default function RoomsPage() {
         capacity: parseInt(capacity),
         type,
         organization: orgId,
+        availability: {
+          allowed_days: allowedDays.length > 0 ? allowedDays : null,
+          allowed_unit_ids: allowedUnitIds.length > 0 ? allowedUnitIds : null,
+        },
       };
       if (examCapacity !== "") payload.exam_capacity = parseInt(examCapacity);
       await api.post("/resources/", payload);
       setName("");
       setCapacity("");
       setExamCapacity("");
+      setAllowedDays([]);
+      setAllowedUnitIds([]);
       refetch();
-    } catch (err: any) {
-      setSaveError(err.message || "Oda eklenemedi.");
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Oda eklenemedi.");
     } finally {
       setSaving(false);
     }
@@ -173,6 +201,51 @@ export default function RoomsPage() {
                 Derslik: kapasite / 2 · Amfi: kapasite / 3 (değiştirilebilir)
               </p>
             </div>
+            {/* Day restriction */}
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>MÜSAİT GÜNLER (boş = her gün)</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {DAYS.map(d => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    onClick={() => setAllowedDays(toggleItem(d.key, allowedDays))}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: `1px solid ${allowedDays.includes(d.key) ? C.cyan : C.border}`,
+                      background: allowedDays.includes(d.key) ? C.cyanSoft : "transparent",
+                      color: allowedDays.includes(d.key) ? C.cyan : C.textMuted,
+                      fontSize: 11,
+                      cursor: "pointer",
+                      ...mono,
+                    }}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Unit restriction */}
+            {academicUnits.length > 0 && (
+              <div>
+                <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>YETKİLİ BİRİMLER (boş = tümü)</label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px" }}>
+                  {academicUnits.map((u) => (
+                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: C.text }}>
+                      <input
+                        type="checkbox"
+                        checked={allowedUnitIds.includes(u.id)}
+                        onChange={() => setAllowedUnitIds(toggleItem(u.id, allowedUnitIds))}
+                      />
+                      {u.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {saveError && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{saveError}</p>}
             <ActionButton disabled={saving || !name || !capacity} icon="+">
               {saving ? "Ekleniyor..." : "Odayı Kaydet"}
