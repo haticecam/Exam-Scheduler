@@ -97,31 +97,17 @@ export default function ExamCalendarPage() {
     }
   };
 
-  type SlotDef = { start: string; end: string; label: string };
-  const [genMode, setGenMode] = useState<"auto" | "manual">("auto");
-  const [genAuto, setGenAuto] = useState({ day_start: "08:30", day_end: "18:00" });
-  const [manualSlots, setManualSlots] = useState<SlotDef[]>([
-    { start: "09:00", end: "12:00", label: "1. Oturum" },
-    { start: "14:00", end: "17:00", label: "2. Oturum" },
-  ]);
+  const [genMode, setGenMode] = useState<"auto" | "custom">("auto");
+  const [genFields, setGenFields] = useState({ day_start: "08:30", day_end: "18:00", slot_duration_minutes: 90 });
   const [genLoading, setGenLoading] = useState(false);
   const [genErr, setGenErr] = useState("");
-
-  const addManualSlot = () =>
-    setManualSlots(prev => [...prev, { start: "09:00", end: "12:00", label: `${prev.length + 1}. Oturum` }]);
-
-  const removeManualSlot = (idx: number) =>
-    setManualSlots(prev => prev.filter((_, i) => i !== idx));
-
-  const updateManualSlot = (idx: number, field: keyof SlotDef, value: string) =>
-    setManualSlots(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s));
 
   const generateSlots = async () => {
     if (!selectedPeriodId) return;
     setGenLoading(true); setGenErr(""); setSlotsLoaded(false);
     const body = genMode === "auto"
-      ? genAuto
-      : { slots: manualSlots };
+      ? { day_start: genFields.day_start, day_end: genFields.day_end }
+      : { day_start: genFields.day_start, day_end: genFields.day_end, slot_duration_minutes: genFields.slot_duration_minutes };
     try {
       await api.post(`/exam-periods/${selectedPeriodId}/generate-slots/`, body);
       refetchSlots();
@@ -253,7 +239,7 @@ export default function ExamCalendarPage() {
           </p>
 
           <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-            {(["auto", "manual"] as const).map(m => (
+            {(["auto", "custom"] as const).map(m => (
               <button
                 key={m}
                 type="button"
@@ -270,63 +256,37 @@ export default function ExamCalendarPage() {
                   fontWeight: genMode === m ? 700 : 400,
                 }}
               >
-                {m === "auto" ? "Otomatik 30dk" : "Manuel Oturumlar"}
+                {m === "auto" ? "Otomatik 30dk" : "Özel Süre"}
               </button>
             ))}
           </div>
 
-          {genMode === "auto" && (
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-              <div>
-                <label style={lStyle}>GÜN BAŞLANGICI</label>
-                <input style={{ ...iStyle, width: 110 }} type="time" value={genAuto.day_start}
-                  onChange={e => setGenAuto({ ...genAuto, day_start: e.target.value })} />
-              </div>
-              <div>
-                <label style={lStyle}>GÜN BİTİŞİ</label>
-                <input style={{ ...iStyle, width: 110 }} type="time" value={genAuto.day_end}
-                  onChange={e => setGenAuto({ ...genAuto, day_end: e.target.value })} />
-              </div>
-            </div>
-          )}
-
-          {genMode === "manual" && (
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
             <div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-                {manualSlots.map((slot, idx) => (
-                  <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <div>
-                      <label style={lStyle}>BAŞLANGIÇ</label>
-                      <input style={{ ...iStyle, width: 110 }} type="time" value={slot.start}
-                        onChange={e => updateManualSlot(idx, "start", e.target.value)} />
-                    </div>
-                    <div>
-                      <label style={lStyle}>BİTİŞ</label>
-                      <input style={{ ...iStyle, width: 110 }} type="time" value={slot.end}
-                        onChange={e => updateManualSlot(idx, "end", e.target.value)} />
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={lStyle}>ETİKET</label>
-                      <input style={iStyle} value={slot.label} placeholder="Örn: Sabah Oturumu"
-                        onChange={e => updateManualSlot(idx, "label", e.target.value)} />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeManualSlot(idx)}
-                      disabled={manualSlots.length <= 1}
-                      style={{ marginTop: 18, background: "transparent", border: `1px solid ${C.red}55`, borderRadius: 6, color: C.red, padding: "8px 10px", cursor: "pointer", ...mono, fontSize: 12, opacity: manualSlots.length <= 1 ? 0.3 : 1 }}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button type="button" onClick={addManualSlot}
-                style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, color: C.textMuted, padding: "7px 14px", cursor: "pointer", ...mono, fontSize: 12 }}>
-                + Oturum Ekle
-              </button>
+              <label style={lStyle}>GÜN BAŞLANGICI</label>
+              <input style={{ ...iStyle, width: 110 }} type="time" value={genFields.day_start}
+                onChange={e => setGenFields({ ...genFields, day_start: e.target.value })} />
             </div>
-          )}
+            <div>
+              <label style={lStyle}>GÜN BİTİŞİ</label>
+              <input style={{ ...iStyle, width: 110 }} type="time" value={genFields.day_end}
+                onChange={e => setGenFields({ ...genFields, day_end: e.target.value })} />
+            </div>
+            {genMode === "custom" && (
+              <div>
+                <label style={lStyle}>SLOT SÜRESİ (DAKİKA)</label>
+                <input
+                  style={{ ...iStyle, width: 110 }}
+                  type="number"
+                  min={15}
+                  max={480}
+                  step={15}
+                  value={genFields.slot_duration_minutes}
+                  onChange={e => setGenFields({ ...genFields, slot_duration_minutes: Number(e.target.value) })}
+                />
+              </div>
+            )}
+          </div>
 
           <div style={{ marginTop: 16 }}>
             <button type="button" onClick={generateSlots} disabled={genLoading}

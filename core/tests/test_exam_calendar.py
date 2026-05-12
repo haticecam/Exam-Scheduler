@@ -63,21 +63,21 @@ def test_generate_slots_auto_30min(api_client, period):
 
 
 @pytest.mark.django_db
-def test_generate_slots_manual_sessions(api_client, period):
-    # 2 sessions per day × 2 days = 4 total
+def test_generate_slots_custom_duration(api_client, period):
+    # 90-minute slots: 08:30 to 18:00 = 570 min / 90 = 6 slots per day; 2 days = 12
     res = api_client.post(f"/api/exam-periods/{period.id}/generate-slots/", {
-        "slots": [
-            {"start": "09:00", "end": "12:00", "label": "Sabah"},
-            {"start": "14:00", "end": "17:00", "label": "Öğleden Sonra"},
-        ]
-    }, format="json")
+        "day_start": "08:30",
+        "day_end": "18:00",
+        "slot_duration_minutes": 90,
+    })
     assert res.status_code == 201
-    assert res.data["created"] == 4
+    assert res.data["created"] == 12
     assert res.data["slot_mode"] == "session"
     slots = ExamDateSlot.objects.filter(exam_period=period).order_by("date", "start_time")
-    assert slots.count() == 4
-    assert slots.first().label == "Sabah"
-    assert str(slots.first().start_time) == "09:00:00"
+    assert slots.count() == 12
+    assert str(slots.first().start_time) == "08:30:00"
+    assert str(slots.first().end_time) == "10:00:00"
+    assert slots.first().label == "08:30-10:00"
 
 
 @pytest.mark.django_db

@@ -25,50 +25,31 @@ class ExamPeriodViewSet(viewsets.ModelViewSet):
 
         period.date_slots.all().delete()
 
+        slot_duration_minutes = data.get("slot_duration_minutes") or 30
+        slot_mode = "30min" if slot_duration_minutes == 30 else "session"
+        day_start = data["day_start"]
+        day_end = data["day_end"]
+        slot_delta = datetime.timedelta(minutes=slot_duration_minutes)
+
         slots = []
         current_date = period.start_date
         one_day = datetime.timedelta(days=1)
 
-        if data.get("slots"):
-            # Mode B: user-defined sessions
-            slot_mode = "session"
-            slot_defs = data["slots"]
-            while current_date <= period.end_date:
-                for defn in slot_defs:
-                    label = (
-                        defn.get("label")
-                        or f"{defn['start'].strftime('%H:%M')}-{defn['end'].strftime('%H:%M')}"
-                    )
-                    slots.append(ExamDateSlot(
-                        exam_period=period,
-                        date=current_date,
-                        start_time=defn["start"],
-                        end_time=defn["end"],
-                        label=label,
-                        is_blocked=False,
-                    ))
-                current_date += one_day
-        else:
-            # Mode A: auto 30-minute slots
-            slot_mode = "30min"
-            day_start = data["day_start"]
-            day_end = data["day_end"]
-            slot_delta = datetime.timedelta(minutes=30)
-            while current_date <= period.end_date:
-                current_dt = datetime.datetime.combine(current_date, day_start)
-                end_dt = datetime.datetime.combine(current_date, day_end)
-                while current_dt + slot_delta <= end_dt:
-                    slot_end_dt = current_dt + slot_delta
-                    slots.append(ExamDateSlot(
-                        exam_period=period,
-                        date=current_date,
-                        start_time=current_dt.time(),
-                        end_time=slot_end_dt.time(),
-                        label=f"{current_dt.strftime('%H:%M')}-{slot_end_dt.strftime('%H:%M')}",
-                        is_blocked=False,
-                    ))
-                    current_dt = slot_end_dt
-                current_date += one_day
+        while current_date <= period.end_date:
+            current_dt = datetime.datetime.combine(current_date, day_start)
+            end_dt = datetime.datetime.combine(current_date, day_end)
+            while current_dt + slot_delta <= end_dt:
+                slot_end_dt = current_dt + slot_delta
+                slots.append(ExamDateSlot(
+                    exam_period=period,
+                    date=current_date,
+                    start_time=current_dt.time(),
+                    end_time=slot_end_dt.time(),
+                    label=f"{current_dt.strftime('%H:%M')}-{slot_end_dt.strftime('%H:%M')}",
+                    is_blocked=False,
+                ))
+                current_dt = slot_end_dt
+            current_date += one_day
 
         ExamDateSlot.objects.bulk_create(slots)
         # Store mode in period.config so the optimizer can detect session vs 30-min mode
