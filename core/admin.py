@@ -68,7 +68,7 @@ class StudentGroupAdmin(admin.ModelAdmin):
 
 @admin.register(Resource)
 class ResourceAdmin(admin.ModelAdmin):
-    list_display = ['name', 'type', 'capacity', 'is_active', 'organization']
+    list_display = ['name', 'type', 'capacity', 'exam_capacity', 'is_active', 'organization']
     list_filter = ['type', 'is_active']
     search_fields = ['name']
 

@@ -170,6 +170,7 @@ class Resource(models.Model):
     name = models.CharField(max_length=255)
     type = models.CharField(max_length=50) # maps to room_type_enum conceptually
     capacity = models.IntegerField(null=True, blank=True)
+    exam_capacity = models.IntegerField(null=True, blank=True)
     attributes = models.JSONField(default=dict, blank=True)
     availability = models.JSONField(null=True, blank=True)
     is_active = models.BooleanField(default=True)

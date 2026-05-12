@@ -1,6 +1,6 @@
 import pytest
 from django.core.management import call_command
-from core.models import Organization, Resource
+from core.models import Organization, Resource, Term
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def test_optimizer_loads_rooms_from_db(org):
 
     assert len(rooms) == 24
     assert 'CZ08-09' in rooms
-    assert rooms['CZ08-09'] == 44  # 132 // 3 (shift capacity)
+    assert rooms['CZ08-09']['capacity'] == 66  # 132 // 2 (exam_capacity for CLASSROOM)
 
 
 @pytest.mark.django_db
@@ -66,5 +66,203 @@ def test_optimizer_raises_when_no_rooms(org):
     term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
 
     svc = OptimizerService(term_id=str(term.id))
-    with pytest.raises(ValueError, match="No active CLASSROOM resources"):
+    with pytest.raises(ValueError, match="No active exam rooms"):
         svc.load_rooms()
+
+
+# ── Exam Capacity: model defaults via seed_rooms ────────────────────────
+
+@pytest.mark.django_db
+def test_seed_rooms_sets_exam_capacity_classroom(org):
+    """seed_rooms must set exam_capacity = capacity // 2 for CLASSROOM rooms."""
+    call_command('seed_rooms', org_id=str(org.id))
+    room = Resource.objects.get(organization=org, name='CZ08-09', type='CLASSROOM')
+    assert room.exam_capacity == 66  # 132 // 2
+
+
+@pytest.mark.django_db
+def test_seed_rooms_correct_capacity_unchanged(org):
+    """seed_rooms must not change the raw capacity field."""
+    call_command('seed_rooms', org_id=str(org.id))
+    room = Resource.objects.get(organization=org, name='CZ08-09', type='CLASSROOM')
+    assert room.capacity == 132
+
+
+# ── Exam Capacity: serializer auto-calc ────────────────────────────────
+
+from core.serializers import ResourceSerializer
+
+
+# ── load_rooms() extended return type ────────────────────────────────
+
+@pytest.mark.django_db
+def test_load_rooms_returns_dict_of_dicts(org):
+    """load_rooms() must return {name: {"capacity": int, "allowed_days": ..., "allowed_unit_ids": ...}}."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+    room = rooms['CZ08-09']
+    assert isinstance(room, dict)
+    assert room['capacity'] == 66
+    assert 'allowed_days' in room
+    assert 'allowed_unit_ids' in room
+
+
+@pytest.mark.django_db
+def test_load_rooms_day_restriction_propagated(org):
+    """A room with allowed_days set must expose that list in load_rooms()."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    Resource.objects.create(
+        organization=org,
+        name='RESTRICTED-ROOM',
+        type='CLASSROOM',
+        capacity=60,
+        exam_capacity=30,
+        is_active=True,
+        availability={"allowed_days": ["Mon", "Wed", "Fri"], "allowed_unit_ids": None},
+    )
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+    assert rooms['RESTRICTED-ROOM']['allowed_days'] == ["Mon", "Wed", "Fri"]
+    assert rooms['RESTRICTED-ROOM']['allowed_unit_ids'] is None
+
+
+@pytest.mark.django_db
+def test_load_rooms_unit_restriction_propagated(org):
+    """A room with allowed_unit_ids set must expose that list in load_rooms()."""
+    from core.models import AcademicUnit
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    unit = AcademicUnit.objects.create(organization=org, name="CS Dept", type="Department")
+    Resource.objects.create(
+        organization=org,
+        name='CS-ONLY-ROOM',
+        type='CLASSROOM',
+        capacity=40,
+        exam_capacity=20,
+        is_active=True,
+        availability={"allowed_days": None, "allowed_unit_ids": [str(unit.id)]},
+    )
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+    assert rooms['CS-ONLY-ROOM']['allowed_unit_ids'] == [str(unit.id)]
+
+
+@pytest.mark.django_db
+def test_serializer_auto_calc_exam_capacity_classroom(org):
+    """ResourceSerializer.create() must set exam_capacity = capacity // 2 for CLASSROOM."""
+    data = {
+        'organization': str(org.id),
+        'name': 'TEST-CLASS',
+        'type': 'CLASSROOM',
+        'capacity': 100,
+    }
+    serializer = ResourceSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    instance = serializer.save()
+    assert instance.exam_capacity == 50  # 100 // 2
+
+
+@pytest.mark.django_db
+def test_serializer_auto_calc_exam_capacity_amphitheater(org):
+    """ResourceSerializer.create() must set exam_capacity = capacity // 3 for AMPHITHEATER."""
+    data = {
+        'organization': str(org.id),
+        'name': 'TEST-AMFI',
+        'type': 'AMPHITHEATER',
+        'capacity': 120,
+    }
+    serializer = ResourceSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    instance = serializer.save()
+    assert instance.exam_capacity == 40  # 120 // 3
+
+
+@pytest.mark.django_db
+def test_serializer_explicit_exam_capacity_overrides_default(org):
+    """Explicitly providing exam_capacity must bypass the auto-calculation."""
+    data = {
+        'organization': str(org.id),
+        'name': 'TEST-OVERRIDE',
+        'type': 'CLASSROOM',
+        'capacity': 100,
+        'exam_capacity': 99,
+    }
+    serializer = ResourceSerializer(data=data)
+    assert serializer.is_valid(), serializer.errors
+    instance = serializer.save()
+    assert instance.exam_capacity == 99
+
+
+# ── Exam Capacity: optimizer ────────────────────────────────────────────
+
+@pytest.mark.django_db
+def test_optimizer_uses_exam_capacity_field(org):
+    """OptimizerService.load_rooms() must return exam_capacity values, not capacity // 3."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+
+    # CZ08-09 has capacity=132; exam_capacity should be 132 // 2 = 66, NOT 132 // 3 = 44
+    assert rooms['CZ08-09']['capacity'] == 66
+
+
+# ── Day-of-week filtering ─────────────────────────────────────────────
+
+from core.services.optimizer import _room_allowed_on_day
+
+
+def test_room_allowed_on_day_no_restriction():
+    """A room with allowed_days=None is allowed on every day."""
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": None}
+    assert _room_allowed_on_day(room, 0) is True   # Mon
+    assert _room_allowed_on_day(room, 6) is True   # Sun
+
+
+def test_room_allowed_on_day_with_restriction():
+    """A room restricted to Mon/Wed/Fri must reject Tue (day_index 1)."""
+    room = {"capacity": 30, "allowed_days": ["Mon", "Wed", "Fri"], "allowed_unit_ids": None}
+    assert _room_allowed_on_day(room, 0) is True   # Mon (index 0 % 7 = 0 → "Mon")
+    assert _room_allowed_on_day(room, 1) is False  # Tue (index 1 % 7 = 1 → "Tue")
+    assert _room_allowed_on_day(room, 2) is True   # Wed
+
+
+def test_room_allowed_on_day_wraps_multi_week():
+    """Day indices beyond 6 wrap: day 7 = Mon again."""
+    room = {"capacity": 30, "allowed_days": ["Mon"], "allowed_unit_ids": None}
+    assert _room_allowed_on_day(room, 7) is True   # day 7 % 7 = 0 → "Mon"
+    assert _room_allowed_on_day(room, 8) is False  # day 8 % 7 = 1 → "Tue"
+
+
+# ── Academic unit filtering ──────────────────────────────────────────
+
+from core.services.optimizer import _room_allowed_for_unit
+
+
+def test_room_allowed_for_unit_no_restriction():
+    """A room with allowed_unit_ids=None is open to any department."""
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": None}
+    assert _room_allowed_for_unit(room, "any-uuid") is True
+
+
+def test_room_allowed_for_unit_with_restriction_match():
+    """A dept in allowed_unit_ids is permitted."""
+    cs_id = "aaaaaaaa-0000-0000-0000-000000000001"
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": [cs_id]}
+    assert _room_allowed_for_unit(room, cs_id) is True
+
+
+def test_room_allowed_for_unit_with_restriction_no_match():
+    """A dept NOT in allowed_unit_ids is denied."""
+    cs_id = "aaaaaaaa-0000-0000-0000-000000000001"
+    ee_id = "bbbbbbbb-0000-0000-0000-000000000002"
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": [cs_id]}
+    assert _room_allowed_for_unit(room, ee_id) is False
+
+
+def test_room_allowed_for_unit_empty_list_means_unrestricted():
+    """An empty allowed_unit_ids list is treated as unrestricted."""
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": []}
+    assert _room_allowed_for_unit(room, "any-uuid") is True
