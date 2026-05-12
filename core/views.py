@@ -13,7 +13,8 @@ from django.http import HttpResponse
 from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource, GeneratedSolution, CourseSection
 from .serializers import (
     OrganizationSerializer, CourseCatalogSerializer, AcademicUnitSerializer, TermSerializer,
-    StudentSerializer, OptimizeRequestSerializer, SimulateStudentsRequestSerializer, ResourceSerializer,
+    StudentSerializer, CourseSectionSerializer, OptimizeRequestSerializer,
+    SimulateStudentsRequestSerializer, ResourceSerializer,
     LLMConfigureRequestSerializer, LLMConfirmRequestSerializer, LLMDiagnoseRequestSerializer,
 )
 from .tasks import dummy_gurobi_task
@@ -201,6 +202,29 @@ class CourseCatalogViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK
         )
+
+
+class CourseSectionViewSet(viewsets.ModelViewSet):
+    """
+    Read course sections for a term. Supports toggling excluded_from_optimization.
+    GET  /course-sections/?term_id=X  — sections with enrolled students for that term
+    PATCH /course-sections/{id}/      — update excluded_from_optimization
+    """
+    serializer_class = CourseSectionSerializer
+    http_method_names = ['get', 'patch', 'head', 'options']
+
+    def get_queryset(self):
+        from django.db.models import Count
+        qs = (
+            CourseSection.objects
+            .select_related('course', 'course__academic_unit')
+            .annotate(enrollment_count=Count('enrollments'))
+            .filter(enrollment_count__gt=0)
+        )
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            qs = qs.filter(term_id=term_id)
+        return qs.order_by('course__code')
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource
+from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource, CourseSection
 
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
@@ -47,6 +47,34 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = ['id', 'organization', 'student_group', 'year_level', 'identifier']
         read_only_fields = ['id']
+
+class CourseSectionSerializer(serializers.ModelSerializer):
+    course_id = serializers.UUIDField(source='course.id', read_only=True)
+    course_code = serializers.CharField(source='course.code', read_only=True)
+    course_name = serializers.CharField(source='course.name', read_only=True)
+    year_level = serializers.IntegerField(source='course.year_level', read_only=True, allow_null=True)
+    academic_unit_name = serializers.SerializerMethodField()
+    exam_duration_minutes = serializers.IntegerField(
+        source='course.exam_duration_minutes', read_only=True, allow_null=True
+    )
+
+    def get_academic_unit_name(self, obj):
+        if obj.course.academic_unit:
+            return obj.course.academic_unit.name
+        return None
+
+    class Meta:
+        model = CourseSection
+        fields = [
+            'id', 'course_id', 'course_code', 'course_name',
+            'year_level', 'academic_unit_name', 'exam_duration_minutes',
+            'excluded_from_optimization',
+        ]
+        read_only_fields = [
+            'id', 'course_id', 'course_code', 'course_name',
+            'year_level', 'academic_unit_name', 'exam_duration_minutes',
+        ]
+
 
 class OptimizeRequestSerializer(serializers.Serializer):
     term_id = serializers.UUIDField(help_text="Required Term ID")

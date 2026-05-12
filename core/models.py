@@ -220,6 +220,7 @@ class CourseCatalog(models.Model):
     requirement = models.CharField(max_length=50, choices=CourseRequirementType.choices, null=True, blank=True)
     default_credits = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
     attributes = models.JSONField(default=dict, blank=True)
+    exam_duration_minutes = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -250,6 +251,7 @@ class CourseSection(models.Model):
     attributes = models.JSONField(default=dict, blank=True)
     version = models.IntegerField(default=1)
     student_groups = models.ManyToManyField(StudentGroup, related_name='sections', blank=True, db_table='coursesection_student_groups')
+    excluded_from_optimization = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'course_section'

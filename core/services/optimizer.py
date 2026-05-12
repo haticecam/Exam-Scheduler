@@ -1,6 +1,7 @@
 from collections import defaultdict
 from django.db import connection
 import logging
+import math
 import os
 import datetime
 import time
@@ -128,6 +129,7 @@ class OptimizerService:
         """
         Returns one row per (course, student_dept) pair.
         enrolled_count = number of students from that dept enrolled in this course.
+        Sections with excluded_from_optimization=True are skipped entirely.
         """
         with connection.cursor() as cur:
             cur.execute("""
@@ -138,6 +140,7 @@ class OptimizerService:
                     cc.requirement::text          AS requirement,
                     cc.year_level,
                     cc.weekly_hours_lecture       AS weekly_hours,
+                    cc.exam_duration_minutes,
                     au_course.name                AS course_dept,
                     sg.academic_unit_id::text     AS student_dept_id,
                     au_student.name               AS student_dept,
@@ -152,8 +155,9 @@ class OptimizerService:
                 WHERE cc.year_level IS NOT NULL
                   AND cc.requirement IS NOT NULL
                   AND cc.name NOT ILIKE '%%graduation%%'
+                  AND cs.excluded_from_optimization = FALSE
                 GROUP BY cc.id, cc.code, cc.name, cc.requirement, cc.year_level,
-                         cc.weekly_hours_lecture, au_course.name,
+                         cc.weekly_hours_lecture, cc.exam_duration_minutes, au_course.name,
                          sg.academic_unit_id, au_student.name
                 HAVING COUNT(DISTINCT e.student_id) > 0
                 ORDER BY au_student.name, cc.year_level, cc.name
@@ -324,9 +328,10 @@ class OptimizerService:
                 info[c]["duration"] = 1
             else:
                 hours = info[c].get("weekly_hours") or 0
-                # Exam lengths in minutes: ≤2 weekly hours→60 min, 3→120 min, ≥4→180 min
-                # Each slot is 30 min, so multiply slot count by 2
                 dur = 6 if hours >= 4 else (4 if hours == 3 else 2)
+                exam_mins = info[c].get("exam_duration_minutes")
+                if exam_mins:
+                    dur = math.ceil(exam_mins / 30)
                 info[c]["duration"] = dur
 
         def valid_starts(c):

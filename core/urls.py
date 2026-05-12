@@ -4,6 +4,7 @@ from .views import (
     SystemStatusView, OrganizationViewSet, CourseCatalogViewSet, AcademicUnitViewSet,
     SimulateStudentsView, TermViewSet, StudentViewSet, OptimizerViewSet, DashboardStatsView,
     ResourceViewSet, LLMConfigureView, LLMConfirmView, LLMDiagnoseView, LLMLibraryView,
+    CourseSectionViewSet,
 )
 from .views_exam import ExamPeriodViewSet, ExamDateSlotViewSet
 
@@ -14,6 +15,7 @@ router.register(r'academic-units', AcademicUnitViewSet, basename='academic-unit'
 router.register(r'terms', TermViewSet, basename='term')
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'resources', ResourceViewSet, basename='resource')
+router.register(r'course-sections', CourseSectionViewSet, basename='course-section')
 router.register(r'optimize', OptimizerViewSet, basename='optimize')
 router.register(r'exam-periods', ExamPeriodViewSet, basename='exam-period')
 router.register(r'exam-date-slots', ExamDateSlotViewSet, basename='exam-date-slot')
