@@ -234,3 +234,35 @@ def test_room_allowed_on_day_wraps_multi_week():
     room = {"capacity": 30, "allowed_days": ["Mon"], "allowed_unit_ids": None}
     assert _room_allowed_on_day(room, 7) is True   # day 7 % 7 = 0 → "Mon"
     assert _room_allowed_on_day(room, 8) is False  # day 8 % 7 = 1 → "Tue"
+
+
+# ── Academic unit filtering ──────────────────────────────────────────
+
+from core.services.optimizer import _room_allowed_for_unit
+
+
+def test_room_allowed_for_unit_no_restriction():
+    """A room with allowed_unit_ids=None is open to any department."""
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": None}
+    assert _room_allowed_for_unit(room, "any-uuid") is True
+
+
+def test_room_allowed_for_unit_with_restriction_match():
+    """A dept in allowed_unit_ids is permitted."""
+    cs_id = "aaaaaaaa-0000-0000-0000-000000000001"
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": [cs_id]}
+    assert _room_allowed_for_unit(room, cs_id) is True
+
+
+def test_room_allowed_for_unit_with_restriction_no_match():
+    """A dept NOT in allowed_unit_ids is denied."""
+    cs_id = "aaaaaaaa-0000-0000-0000-000000000001"
+    ee_id = "bbbbbbbb-0000-0000-0000-000000000002"
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": [cs_id]}
+    assert _room_allowed_for_unit(room, ee_id) is False
+
+
+def test_room_allowed_for_unit_empty_list_means_unrestricted():
+    """An empty allowed_unit_ids list is treated as unrestricted."""
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": []}
+    assert _room_allowed_for_unit(room, "any-uuid") is True
