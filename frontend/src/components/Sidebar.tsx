@@ -12,10 +12,11 @@ const NAV = [
   {
     label: "1 — VERİ GİRİŞİ",
     items: [
-      { id: "/terms",    label: "Dönem Yönetimi" },
-      { id: "/courses",  label: "Ders Kataloğu" },
-      { id: "/students", label: "Öğrenci & Kayıt" },
-      { id: "/rooms",    label: "Oda Yönetimi" },
+      { id: "/terms",         label: "Dönem Yönetimi" },
+      { id: "/courses",       label: "Ders Kataloğu" },
+      { id: "/students",      label: "Öğrenci & Kayıt" },
+      { id: "/rooms",         label: "Oda Yönetimi" },
+      { id: "/exam-calendar", label: "Sınav Takvimi" },
     ],
   },
   {

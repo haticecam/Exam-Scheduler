@@ -601,6 +601,7 @@ class OptimizerViewSet(viewsets.ViewSet):
                 'year_order_weights': data.get('year_order_weights', None),
                 'weight_config': weight_config,
                 'llm_proposed_params': proposed_params or None,
+                'exam_period_id': str(data['exam_period_id']) if data.get('exam_period_id') else None,
             },
             status='PENDING'
         )
