@@ -45,6 +45,13 @@ export default function OptimizerPage() {
     year_order_weights: null as Record<string, number> | null,
   });
 
+  const [examPeriodId, setExamPeriodId] = useState<string>("");
+  const { data: periodsData } = useFetch(
+    params.term_id ? `/exam-periods/?term_id=${params.term_id}` : "",
+    [params.term_id]
+  );
+  const examPeriods: { id: string; name: string; start_date: string; end_date: string }[] = periodsData || [];
+
   const [runSt, setRunSt] = useState("idle");
   const [solId, setSolId] = useState<string | null>(null);
   const [submitErr, setSubErr] = useState("");
@@ -93,9 +100,10 @@ export default function OptimizerPage() {
     try {
       const { name, ...rest } = params;
       const payload = name ? { ...rest, name } : rest;
-      const finalPayload = pendingProposedParams
-        ? { ...payload, proposed_params: pendingProposedParams }
-        : payload;
+      const finalPayload = {
+        ...(pendingProposedParams ? { ...payload, proposed_params: pendingProposedParams } : payload),
+        ...(examPeriodId ? { exam_period_id: examPeriodId } : {}),
+      };
       const res = await api.post("/optimize/run/", finalPayload);
       const id = res?.task_id || res?.solution_id || res?.id;
       if (!id) throw new Error("Backend'den geçerli bir task/solution ID alınamadı.");
@@ -134,6 +142,7 @@ export default function OptimizerPage() {
   const applyToForm = () => {
     if (!llmResult?.optimizer_kwargs) return;
     setPendingProposedParams(llmResult.proposed_params ?? null);
+    setExamPeriodId("");  // LLM config uses manual params
     const kw = llmResult.optimizer_kwargs as any;
     setParams(p => ({
       ...p,
@@ -409,13 +418,52 @@ export default function OptimizerPage() {
         )}
       </Card>
 
+      {/* ── Exam Calendar selector ───────────────────────────────── */}
+      {params.term_id && examPeriods.length > 0 && (
+        <Card style={{ padding: "20px 24px", marginBottom: 20, borderColor: examPeriodId ? `${C.green}55` : C.border }}>
+          <SL>SINAV TAKVİMİ (OPSİYONEL)</SL>
+          <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 14, lineHeight: 1.6 }}>
+            Takvim seçildiğinde optimizer, sınav günü sayısı ve zaman dilimlerini takvimden otomatik alır.
+            Engellenen günler ve saatler dışlanır.
+          </p>
+          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+            <div style={{ flex: 1 }}>
+              <label style={lStyle}>SINAV TAKVİMİ</label>
+              <select
+                style={{ ...iStyle, cursor: "pointer", borderColor: examPeriodId ? C.green : C.border }}
+                value={examPeriodId}
+                onChange={e => setExamPeriodId(e.target.value)}
+              >
+                <option value="">— Manuel parametreler kullan —</option>
+                {examPeriods.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.start_date} → {p.end_date})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {examPeriodId && (
+              <div style={{ flexShrink: 0, padding: "8px 14px", background: `color-mix(in srgb, ${C.green} 10%, transparent)`, borderRadius: 8, border: `1px solid ${C.green}44` }}>
+                <span style={{ ...mono, fontSize: 11, color: C.green, fontWeight: 700 }}>✓ TAKVİM AKTİF</span>
+                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Gün sayısı, başlangıç saati ve engellenen slotlar takvimden alınır</div>
+              </div>
+            )}
+          </div>
+          {examPeriodId && (
+            <p style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
+              Aşağıdaki &quot;Sınav Gün Sayısı&quot;, &quot;Slot Sayısı&quot; ve &quot;Başlangıç Saati&quot; alanları takvim seçildiğinde yok sayılır.
+            </p>
+          )}
+        </Card>
+      )}
+
       {/* ── Parameter form ───────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
         <Card style={{ padding: "24px" }}>
           <SL>TEMEL PARAMETRELER</SL>
           <div style={{ marginBottom: 16 }}>
             <label style={lStyle}>AKTİF DÖNEM</label>
-            <select style={{ ...iStyle, cursor: "pointer" }} value={params.term_id} onChange={e => setParams({ ...params, term_id: e.target.value })}>
+            <select style={{ ...iStyle, cursor: "pointer" }} value={params.term_id} onChange={e => { setParams({ ...params, term_id: e.target.value }); setExamPeriodId(""); }}>
               <option value="">— Dönem seçin —</option>
               {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
