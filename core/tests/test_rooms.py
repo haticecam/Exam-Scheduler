@@ -1,6 +1,6 @@
 import pytest
 from django.core.management import call_command
-from core.models import Organization, Resource
+from core.models import Organization, Resource, Term
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ def test_optimizer_loads_rooms_from_db(org):
 
     assert len(rooms) == 24
     assert 'CZ08-09' in rooms
-    assert rooms['CZ08-09'] == 66  # 132 // 2 (exam_capacity for CLASSROOM)
+    assert rooms['CZ08-09']['capacity'] == 66  # 132 // 2 (exam_capacity for CLASSROOM)
 
 
 @pytest.mark.django_db
@@ -91,6 +91,61 @@ def test_seed_rooms_correct_capacity_unchanged(org):
 # ── Exam Capacity: serializer auto-calc ────────────────────────────────
 
 from core.serializers import ResourceSerializer
+
+
+# ── load_rooms() extended return type ────────────────────────────────
+
+@pytest.mark.django_db
+def test_load_rooms_returns_dict_of_dicts(org):
+    """load_rooms() must return {name: {"capacity": int, "allowed_days": ..., "allowed_unit_ids": ...}}."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    call_command('seed_rooms', org_id=str(org.id))
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+    room = rooms['CZ08-09']
+    assert isinstance(room, dict)
+    assert room['capacity'] == 66
+    assert 'allowed_days' in room
+    assert 'allowed_unit_ids' in room
+
+
+@pytest.mark.django_db
+def test_load_rooms_day_restriction_propagated(org):
+    """A room with allowed_days set must expose that list in load_rooms()."""
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    Resource.objects.create(
+        organization=org,
+        name='RESTRICTED-ROOM',
+        type='CLASSROOM',
+        capacity=60,
+        exam_capacity=30,
+        is_active=True,
+        availability={"allowed_days": ["Mon", "Wed", "Fri"], "allowed_unit_ids": None},
+    )
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+    assert rooms['RESTRICTED-ROOM']['allowed_days'] == ["Mon", "Wed", "Fri"]
+    assert rooms['RESTRICTED-ROOM']['allowed_unit_ids'] is None
+
+
+@pytest.mark.django_db
+def test_load_rooms_unit_restriction_propagated(org):
+    """A room with allowed_unit_ids set must expose that list in load_rooms()."""
+    from core.models import AcademicUnit
+    term = Term.objects.create(organization=org, name='Fall 2025', status='Active')
+    unit = AcademicUnit.objects.create(organization=org, name="CS Dept", type="Department")
+    Resource.objects.create(
+        organization=org,
+        name='CS-ONLY-ROOM',
+        type='CLASSROOM',
+        capacity=40,
+        exam_capacity=20,
+        is_active=True,
+        availability={"allowed_days": None, "allowed_unit_ids": [str(unit.id)]},
+    )
+    svc = OptimizerService(term_id=str(term.id))
+    rooms = svc.load_rooms()
+    assert rooms['CS-ONLY-ROOM']['allowed_unit_ids'] == [str(unit.id)]
 
 
 @pytest.mark.django_db
@@ -151,4 +206,4 @@ def test_optimizer_uses_exam_capacity_field(org):
     rooms = svc.load_rooms()
 
     # CZ08-09 has capacity=132; exam_capacity should be 132 // 2 = 66, NOT 132 // 3 = 44
-    assert rooms['CZ08-09'] == 66
+    assert rooms['CZ08-09']['capacity'] == 66

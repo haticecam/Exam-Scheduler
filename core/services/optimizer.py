@@ -65,10 +65,10 @@ class OptimizerService:
     def __init__(self, term_id: str):
         self.term_id = str(term_id)
 
-    def load_rooms(self) -> dict[str, int]:
+    def load_rooms(self) -> dict[str, dict]:
         """
         Load active exam rooms for this term's organization from the Resource table.
-        Returns dict: room_name → capacity.
+        Returns dict: room_name → {"capacity": int, "allowed_days": list|None, "allowed_unit_ids": list|None}
         Raises ValueError if no rooms are configured.
         """
         from core.models import Term, Resource
@@ -82,9 +82,17 @@ class OptimizerService:
             type__in=['CLASSROOM', 'AMPHITHEATER'],
             is_active=True,
             exam_capacity__isnull=False
-        ).values('name', 'exam_capacity')
+        ).values('name', 'exam_capacity', 'availability')
 
-        rooms = {r['name']: r['exam_capacity'] for r in resources}
+        rooms = {}
+        for r in resources:
+            avail = r['availability'] or {}
+            rooms[r['name']] = {
+                "capacity": r['exam_capacity'],
+                "allowed_days": avail.get('allowed_days') or None,
+                "allowed_unit_ids": avail.get('allowed_unit_ids') or None,
+            }
+
         if not rooms:
             raise ValueError(
                 f"No active exam rooms found for organization '{term.organization.name}'. "
@@ -243,9 +251,12 @@ class OptimizerService:
             env.setParam("WLSSECRET", wls_secret)
             env.setParam("LICENSEID", int(license_id))
 
-        env.setParam("OutputFlag", 0)
+        env.setParam("OutputFlag", 1)
+        env.setParam("LogToConsole", 1)
         env.start()
         m = gp.Model("exam_scheduling", env=env)
+        m.setParam("SoftMemLimit", 10)  # stop gracefully at 10 GB instead of being SIGKILL'd
+        m.setParam("NodefileStart", 4)  # spill B&B nodes to disk when tree exceeds 4 GB
         t_build_start = time.perf_counter()
 
         y = {}
