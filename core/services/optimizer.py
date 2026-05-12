@@ -280,7 +280,7 @@ class OptimizerService:
             enrolled = info[c]["enrolled_count"]
             for s in valid_starts(c):
                 m.addConstr(
-                    quicksum(x_start[(c, r, s)] * rooms[r] for r in rooms) >= enrolled * y[(c, s)],
+                    quicksum(x_start[(c, r, s)] * rooms[r]["capacity"] for r in rooms) >= enrolled * y[(c, s)],
                     name=f"cap[{short[c]},{s}]")
                 for r in rooms:
                     m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
@@ -438,7 +438,7 @@ class OptimizerService:
                         "start_slot": start_s, "duration": dur,
                         "day": day_labels[day],
                         "time": f"{slot_starts[session]}-{slot_ends[session + dur - 1]}",
-                        "room": r, "room_cap": rooms[r],
+                        "room": r, "room_cap": rooms[r]["capacity"],
                         "enrolled": info[c]["enrolled_count"],
                         "course_id": info[c]["course_id"],
                         "code": info[c]["code"],
@@ -532,7 +532,7 @@ class OptimizerService:
                 "hard_conflict_pairs": len(hard_pairs),
                 "total_slots": n_slots,
                 "total_rooms": len(ROOMS),
-                "total_room_capacity_per_slot": sum(ROOMS.values()),
+                "total_room_capacity_per_slot": sum(v["capacity"] for v in ROOMS.values()),
                 "max_enrolled_unit": max((info[c]["enrolled_count"], info[c]["code"], info[c]["student_dept"]) for c in C) if C else None,
             },
             "iis_constraints": [],
