@@ -76,6 +76,8 @@ export default function RoomsPage() {
   const [editExamCapacity, setEditExamCapacity] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState("");
+  const [editAllowedDays, setEditAllowedDays] = useState<string[]>([]);
+  const [editAllowedUnitIds, setEditAllowedUnitIds] = useState<string[]>([]);
 
   // Delete confirm
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
@@ -120,6 +122,8 @@ export default function RoomsPage() {
     setEditCapacity(String(room.capacity ?? ""));
     setEditType(room.type);
     setEditExamCapacity(room.exam_capacity != null ? String(room.exam_capacity) : "");
+    setEditAllowedDays(room.availability?.allowed_days ?? []);
+    setEditAllowedUnitIds(room.availability?.allowed_unit_ids ?? []);
     setEditError("");
   };
 
@@ -132,13 +136,17 @@ export default function RoomsPage() {
         name: editName,
         capacity: parseInt(editCapacity),
         type: editType,
+        availability: {
+          allowed_days: editAllowedDays.length > 0 ? editAllowedDays : null,
+          allowed_unit_ids: editAllowedUnitIds.length > 0 ? editAllowedUnitIds : null,
+        },
       };
       if (editExamCapacity !== "") payload.exam_capacity = parseInt(editExamCapacity);
       await api.patch(`/resources/${editRoom.id}/`, payload);
       refetch();
       setEditRoom(null);
-    } catch (err: any) {
-      setEditError(err.message || "Güncelleme başarısız.");
+    } catch (err: unknown) {
+      setEditError(err instanceof Error ? err.message : "Güncelleme başarısız.");
     } finally {
       setEditLoading(false);
     }
@@ -254,7 +262,7 @@ export default function RoomsPage() {
         </Card>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <DataTable headers={["Oda Adı", "Tür", "Kapasite", "Sınav Kap.", "İşlemler"]}>
+          <DataTable headers={["Oda Adı", "Tür", "Kapasite", "Sınav Kap.", "Müsaitlik", "İşlemler"]}>
             {loading && <DataRow><DataCell colSpan={5} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell></DataRow>}
             {!loading && rooms.length === 0 && <DataRow><DataCell colSpan={5}><InfoBox msg="Henüz hiç oda eklenmemiş." /></DataCell></DataRow>}
             {rooms.map((room: any) => (
@@ -266,6 +274,16 @@ export default function RoomsPage() {
                 <DataCell style={{ color: C.textSub, ...mono }}>{room.capacity} Kişi</DataCell>
                 <DataCell style={{ color: C.textSub, ...mono }}>
                   {room.exam_capacity != null ? `${room.exam_capacity} Kişi` : "—"}
+                </DataCell>
+                <DataCell style={{ color: C.textSub, fontSize: 11, ...mono }}>
+                  {(() => {
+                    const days = room.availability?.allowed_days;
+                    const units = room.availability?.allowed_unit_ids;
+                    const parts: string[] = [];
+                    if (days && days.length > 0) parts.push(days.join("/"));
+                    if (units && units.length > 0) parts.push(`${units.length} birim`);
+                    return parts.length > 0 ? parts.join(" · ") : "—";
+                  })()}
                 </DataCell>
                 <DataCell>
                   <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -327,6 +345,52 @@ export default function RoomsPage() {
                 placeholder="Sınav kapasitesi"
               />
             </div>
+
+            {/* Day restriction */}
+            <div className="flex flex-col gap-1.5">
+              <Label>Müsait Günler (boş = her gün)</Label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {DAYS.map(d => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    onClick={() => setEditAllowedDays(toggleItem(d.key, editAllowedDays))}
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: 4,
+                      border: `1px solid ${editAllowedDays.includes(d.key) ? "hsl(var(--primary))" : "hsl(var(--border))"}`,
+                      background: editAllowedDays.includes(d.key) ? "hsl(var(--primary) / 0.1)" : "transparent",
+                      color: editAllowedDays.includes(d.key) ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+                      fontSize: 11,
+                      cursor: "pointer",
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Unit restriction */}
+            {academicUnits.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <Label>Yetkili Birimler (boş = tümü)</Label>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto", border: "1px solid hsl(var(--border))", borderRadius: 6, padding: "6px 8px" }}>
+                  {academicUnits.map((u) => (
+                    <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12 }}>
+                      <input
+                        type="checkbox"
+                        checked={editAllowedUnitIds.includes(u.id)}
+                        onChange={() => setEditAllowedUnitIds(toggleItem(u.id, editAllowedUnitIds))}
+                      />
+                      {u.name}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {editError && <p className="text-sm text-destructive">{editError}</p>}
           </div>
           <DialogFooter>
