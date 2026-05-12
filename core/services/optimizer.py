@@ -55,6 +55,25 @@ def compute_year_bands(year_levels: list, exam_days: int, ordered_sequence: list
         return bands
 
 
+_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _room_allowed_on_day(room: dict, day_index: int) -> bool:
+    """Return True if room has no day restriction or the weekday is in allowed_days."""
+    allowed = room.get("allowed_days")
+    if not allowed:
+        return True
+    return _WEEKDAYS[day_index % 7] in allowed
+
+
+def _room_allowed_for_unit(room: dict, student_dept_id: str) -> bool:
+    """Return True if room has no unit restriction or the dept is in allowed_unit_ids."""
+    allowed = room.get("allowed_unit_ids")
+    if not allowed:
+        return True
+    return student_dept_id in allowed
+
+
 class OptimizerService:
     """
     Scheduling unit: (course × student's department).
@@ -266,8 +285,14 @@ class OptimizerService:
 
         x_start = {}
         for c in C:
+            dept_id = info[c]["student_dept_id"]
             for r in rooms:
+                if not _room_allowed_for_unit(rooms[r], dept_id):
+                    continue
                 for s in valid_starts(c):
+                    day_idx = s // slots_per_day
+                    if not _room_allowed_on_day(rooms[r], day_idx):
+                        continue
                     x_start[(c, r, s)] = m.addVar(vtype=GRB.BINARY, name=f"x[{short[c]},{r},{s}]")
 
         m.update()
@@ -280,11 +305,13 @@ class OptimizerService:
             enrolled = info[c]["enrolled_count"]
             for s in valid_starts(c):
                 m.addConstr(
-                    quicksum(x_start[(c, r, s)] * rooms[r]["capacity"] for r in rooms) >= enrolled * y[(c, s)],
+                    quicksum(x_start[(c, r, s)] * rooms[r]["capacity"]
+                             for r in rooms if (c, r, s) in x_start) >= enrolled * y[(c, s)],
                     name=f"cap[{short[c]},{s}]")
                 for r in rooms:
-                    m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
-                                name=f"link[{short[c]},{r},{s}]")
+                    if (c, r, s) in x_start:
+                        m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
+                                    name=f"link[{short[c]},{r},{s}]")
 
         def v_expr(c, t):
             dur = info[c]["duration"]
@@ -294,8 +321,10 @@ class OptimizerService:
             for t in range(n_slots):
                 occupied = quicksum(
                     x_start[(c, r, s)] for c in C
-                    for s in valid_starts(c) if s <= t < s + info[c]["duration"])
-                m.addConstr(occupied <= 1, name=f"room_busy[{r},{t}]")
+                    for s in valid_starts(c)
+                    if s <= t < s + info[c]["duration"] and (c, r, s) in x_start)
+                if occupied.size() > 0:
+                    m.addConstr(occupied <= 1, name=f"room_busy[{r},{t}]")
 
         minimize_rooms_used = quicksum(x_start.values()) * 0.01
 

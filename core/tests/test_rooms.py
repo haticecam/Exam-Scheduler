@@ -207,3 +207,30 @@ def test_optimizer_uses_exam_capacity_field(org):
 
     # CZ08-09 has capacity=132; exam_capacity should be 132 // 2 = 66, NOT 132 // 3 = 44
     assert rooms['CZ08-09']['capacity'] == 66
+
+
+# ── Day-of-week filtering ─────────────────────────────────────────────
+
+from core.services.optimizer import _room_allowed_on_day
+
+
+def test_room_allowed_on_day_no_restriction():
+    """A room with allowed_days=None is allowed on every day."""
+    room = {"capacity": 30, "allowed_days": None, "allowed_unit_ids": None}
+    assert _room_allowed_on_day(room, 0) is True   # Mon
+    assert _room_allowed_on_day(room, 6) is True   # Sun
+
+
+def test_room_allowed_on_day_with_restriction():
+    """A room restricted to Mon/Wed/Fri must reject Tue (day_index 1)."""
+    room = {"capacity": 30, "allowed_days": ["Mon", "Wed", "Fri"], "allowed_unit_ids": None}
+    assert _room_allowed_on_day(room, 0) is True   # Mon (index 0 % 7 = 0 → "Mon")
+    assert _room_allowed_on_day(room, 1) is False  # Tue (index 1 % 7 = 1 → "Tue")
+    assert _room_allowed_on_day(room, 2) is True   # Wed
+
+
+def test_room_allowed_on_day_wraps_multi_week():
+    """Day indices beyond 6 wrap: day 7 = Mon again."""
+    room = {"capacity": 30, "allowed_days": ["Mon"], "allowed_unit_ids": None}
+    assert _room_allowed_on_day(room, 7) is True   # day 7 % 7 = 0 → "Mon"
+    assert _room_allowed_on_day(room, 8) is False  # day 8 % 7 = 1 → "Tue"
