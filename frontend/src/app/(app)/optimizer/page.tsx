@@ -418,45 +418,6 @@ export default function OptimizerPage() {
         )}
       </Card>
 
-      {/* ── Exam Calendar selector ───────────────────────────────── */}
-      {params.term_id && examPeriods.length > 0 && (
-        <Card style={{ padding: "20px 24px", marginBottom: 20, borderColor: examPeriodId ? `${C.green}55` : C.border }}>
-          <SL>SINAV TAKVİMİ (OPSİYONEL)</SL>
-          <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 14, lineHeight: 1.6 }}>
-            Takvim seçildiğinde optimizer, sınav günü sayısı ve zaman dilimlerini takvimden otomatik alır.
-            Engellenen günler ve saatler dışlanır.
-          </p>
-          <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <div style={{ flex: 1 }}>
-              <label style={lStyle}>SINAV TAKVİMİ</label>
-              <select
-                style={{ ...iStyle, cursor: "pointer", borderColor: examPeriodId ? C.green : C.border }}
-                value={examPeriodId}
-                onChange={e => setExamPeriodId(e.target.value)}
-              >
-                <option value="">— Manuel parametreler kullan —</option>
-                {examPeriods.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.start_date} → {p.end_date})
-                  </option>
-                ))}
-              </select>
-            </div>
-            {examPeriodId && (
-              <div style={{ flexShrink: 0, padding: "8px 14px", background: `color-mix(in srgb, ${C.green} 10%, transparent)`, borderRadius: 8, border: `1px solid ${C.green}44` }}>
-                <span style={{ ...mono, fontSize: 11, color: C.green, fontWeight: 700 }}>✓ TAKVİM AKTİF</span>
-                <div style={{ fontSize: 10, color: C.textMuted, marginTop: 3 }}>Gün sayısı, başlangıç saati ve engellenen slotlar takvimden alınır</div>
-              </div>
-            )}
-          </div>
-          {examPeriodId && (
-            <p style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
-              Aşağıdaki &quot;Sınav Gün Sayısı&quot;, &quot;Slot Sayısı&quot; ve &quot;Başlangıç Saati&quot; alanları takvim seçildiğinde yok sayılır.
-            </p>
-          )}
-        </Card>
-      )}
-
       {/* ── Parameter form ───────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
         <Card style={{ padding: "24px" }}>
@@ -468,22 +429,61 @@ export default function OptimizerPage() {
               {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
+
+          {/* Exam calendar selector — shown whenever a term is selected */}
+          {params.term_id && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={lStyle}>SINAV TAKVİMİ</label>
+              {examPeriods.length > 0 ? (
+                <select
+                  style={{ ...iStyle, cursor: "pointer", borderColor: examPeriodId ? C.green : C.border }}
+                  value={examPeriodId}
+                  onChange={e => setExamPeriodId(e.target.value)}
+                >
+                  <option value="">— Manuel parametreler kullan —</option>
+                  {examPeriods.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.start_date} → {p.end_date})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ fontSize: 12, color: C.textMuted, padding: "9px 12px", border: `1px dashed ${C.border}`, borderRadius: 6 }}>
+                  Bu dönem için henüz sınav takvimi yok — önce{" "}
+                  <a href="/exam-calendar" style={{ color: C.accent }}>Sınav Takvimi</a>{" "}
+                  sayfasından oluşturun.
+                </div>
+              )}
+              {examPeriodId && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ TAKVİM AKTİF</span>
+                  <span style={{ fontSize: 11, color: C.textMuted }}>— gün sayısı, saatler ve engellenen slotlar takvimden alınır</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ marginBottom: 16 }}>
             <label style={lStyle}>ÇÖZÜM ADI <span style={{ color: C.textMuted }}>(opsiyonel)</span></label>
             <input style={iStyle} placeholder="Örn: Güz 2025 Test 3" value={params.name} onChange={e => setParams({ ...params, name: e.target.value })} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            {[
-              { label: "SINAV GÜN SAYISI", key: "exam_days" },
-              { label: "GÜN BAŞI SLOT (30dk)", key: "slots_per_day" },
-              { label: "BAŞLANGIÇ SAATİ", key: "start_hour" },
-            ].map(f => (
-              <div key={f.key}>
-                <label style={lStyle}>{f.label}</label>
-                <input style={iStyle} type="number" value={params[f.key as keyof typeof params] as number} onChange={e => setParams({ ...params, [f.key]: +e.target.value })} />
-              </div>
-            ))}
-          </div>
+
+          {/* Hide time-grid fields when calendar is active — it provides these values */}
+          {!examPeriodId && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              {[
+                { label: "SINAV GÜN SAYISI", key: "exam_days" },
+                { label: "GÜN BAŞI SLOT (30dk)", key: "slots_per_day" },
+                { label: "BAŞLANGIÇ SAATİ", key: "start_hour" },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={lStyle}>{f.label}</label>
+                  <input style={iStyle} type="number" value={params[f.key as keyof typeof params] as number} onChange={e => setParams({ ...params, [f.key]: +e.target.value })} />
+                </div>
+              ))}
+            </div>
+          )}
+
           <div>
             <label style={lStyle}>ÇAKIŞMA EŞİĞİ (HARD THRESHOLD)</label>
             <input style={iStyle} type="number" min={0} value={params.hard_threshold} onChange={e => setParams({ ...params, hard_threshold: +e.target.value })} />
