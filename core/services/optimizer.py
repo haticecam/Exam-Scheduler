@@ -55,6 +55,25 @@ def compute_year_bands(year_levels: list, exam_days: int, ordered_sequence: list
         return bands
 
 
+_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _room_allowed_on_day(room: dict, day_index: int) -> bool:
+    """Return True if room has no day restriction or the weekday is in allowed_days."""
+    allowed = room.get("allowed_days")
+    if not allowed:
+        return True
+    return _WEEKDAYS[day_index % 7] in allowed
+
+
+def _room_allowed_for_unit(room: dict, student_dept_id: str) -> bool:
+    """Return True if room has no unit restriction or the dept is in allowed_unit_ids."""
+    allowed = room.get("allowed_unit_ids")
+    if not allowed:
+        return True
+    return student_dept_id in allowed
+
+
 class OptimizerService:
     """
     Scheduling unit: (course × student's department).
@@ -65,10 +84,10 @@ class OptimizerService:
     def __init__(self, term_id: str):
         self.term_id = str(term_id)
 
-    def load_rooms(self) -> dict[str, int]:
+    def load_rooms(self) -> dict[str, dict]:
         """
         Load active exam rooms for this term's organization from the Resource table.
-        Returns dict: room_name → capacity.
+        Returns dict: room_name → {"capacity": int, "allowed_days": list|None, "allowed_unit_ids": list|None}
         Raises ValueError if no rooms are configured.
         """
         from core.models import Term, Resource
@@ -79,16 +98,23 @@ class OptimizerService:
 
         resources = Resource.objects.filter(
             organization=term.organization,
-            type='CLASSROOM',
+            type__in=['CLASSROOM', 'AMPHITHEATER'],
             is_active=True,
-            capacity__isnull=False
-        ).values('name', 'capacity')
+            exam_capacity__isnull=False
+        ).values('name', 'exam_capacity', 'availability')
 
-        # Divide by 3: rooms are used in exam shifts, so effective capacity per shift is capacity // 3
-        rooms = {r['name']: r['capacity'] // 3 for r in resources}
+        rooms = {}
+        for r in resources:
+            avail = r['availability'] or {}
+            rooms[r['name']] = {
+                "capacity": r['exam_capacity'],
+                "allowed_days": avail.get('allowed_days') or None,
+                "allowed_unit_ids": avail.get('allowed_unit_ids') or None,
+            }
+
         if not rooms:
             raise ValueError(
-                f"No active CLASSROOM resources found for organization '{term.organization.name}'. "
+                f"No active exam rooms found for organization '{term.organization.name}'. "
                 f"Run: python manage.py seed_rooms --org_id {term.organization.id}"
             )
         return rooms
@@ -244,9 +270,12 @@ class OptimizerService:
             env.setParam("WLSSECRET", wls_secret)
             env.setParam("LICENSEID", int(license_id))
 
-        env.setParam("OutputFlag", 0)
+        env.setParam("OutputFlag", 1)
+        env.setParam("LogToConsole", 1)
         env.start()
         m = gp.Model("exam_scheduling", env=env)
+        m.setParam("SoftMemLimit", 10)  # stop gracefully at 10 GB instead of being SIGKILL'd
+        m.setParam("NodefileStart", 4)  # spill B&B nodes to disk when tree exceeds 4 GB
         t_build_start = time.perf_counter()
 
         y = {}
@@ -256,8 +285,14 @@ class OptimizerService:
 
         x_start = {}
         for c in C:
+            dept_id = info[c]["student_dept_id"]
             for r in rooms:
+                if not _room_allowed_for_unit(rooms[r], dept_id):
+                    continue
                 for s in valid_starts(c):
+                    day_idx = s // slots_per_day
+                    if not _room_allowed_on_day(rooms[r], day_idx):
+                        continue
                     x_start[(c, r, s)] = m.addVar(vtype=GRB.BINARY, name=f"x[{short[c]},{r},{s}]")
 
         m.update()
@@ -270,11 +305,13 @@ class OptimizerService:
             enrolled = info[c]["enrolled_count"]
             for s in valid_starts(c):
                 m.addConstr(
-                    quicksum(x_start[(c, r, s)] * rooms[r] for r in rooms) >= enrolled * y[(c, s)],
+                    quicksum(x_start[(c, r, s)] * rooms[r]["capacity"]
+                             for r in rooms if (c, r, s) in x_start) >= enrolled * y[(c, s)],
                     name=f"cap[{short[c]},{s}]")
                 for r in rooms:
-                    m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
-                                name=f"link[{short[c]},{r},{s}]")
+                    if (c, r, s) in x_start:
+                        m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
+                                    name=f"link[{short[c]},{r},{s}]")
 
         def v_expr(c, t):
             dur = info[c]["duration"]
@@ -284,8 +321,10 @@ class OptimizerService:
             for t in range(n_slots):
                 occupied = quicksum(
                     x_start[(c, r, s)] for c in C
-                    for s in valid_starts(c) if s <= t < s + info[c]["duration"])
-                m.addConstr(occupied <= 1, name=f"room_busy[{r},{t}]")
+                    for s in valid_starts(c)
+                    if s <= t < s + info[c]["duration"] and (c, r, s) in x_start)
+                if occupied.size() > 0:
+                    m.addConstr(occupied <= 1, name=f"room_busy[{r},{t}]")
 
         minimize_rooms_used = quicksum(x_start.values()) * 0.01
 
@@ -428,7 +467,7 @@ class OptimizerService:
                         "start_slot": start_s, "duration": dur,
                         "day": day_labels[day],
                         "time": f"{slot_starts[session]}-{slot_ends[session + dur - 1]}",
-                        "room": r, "room_cap": rooms[r],
+                        "room": r, "room_cap": rooms[r]["capacity"],
                         "enrolled": info[c]["enrolled_count"],
                         "course_id": info[c]["course_id"],
                         "code": info[c]["code"],
@@ -522,7 +561,7 @@ class OptimizerService:
                 "hard_conflict_pairs": len(hard_pairs),
                 "total_slots": n_slots,
                 "total_rooms": len(ROOMS),
-                "total_room_capacity_per_slot": sum(ROOMS.values()),
+                "total_room_capacity_per_slot": sum(v["capacity"] for v in ROOMS.values()),
                 "max_enrolled_unit": max((info[c]["enrolled_count"], info[c]["code"], info[c]["student_dept"]) for c in C) if C else None,
             },
             "iis_constraints": [],

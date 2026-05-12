@@ -13,6 +13,17 @@ class ResourceSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id']
 
+    def create(self, validated_data):
+        if validated_data.get('exam_capacity') is None:
+            capacity = validated_data.get('capacity')
+            room_type = validated_data.get('type', '')
+            if capacity is not None:
+                if room_type == 'CLASSROOM':
+                    validated_data['exam_capacity'] = capacity // 2
+                elif room_type == 'AMPHITHEATER':
+                    validated_data['exam_capacity'] = capacity // 3
+        return super().create(validated_data)
+
 class CourseCatalogSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseCatalog
