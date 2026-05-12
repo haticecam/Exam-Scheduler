@@ -58,12 +58,13 @@ def compute_year_bands(year_levels: list, exam_days: int, ordered_sequence: list
 _WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def _room_allowed_on_day(room: dict, day_index: int) -> bool:
+def _room_allowed_on_day(room: dict, day_index: int, weekday_str: str = None) -> bool:
     """Return True if room has no day restriction or the weekday is in allowed_days."""
     allowed = room.get("allowed_days")
     if not allowed:
         return True
-    return _WEEKDAYS[day_index % 7] in allowed
+    wd = weekday_str if weekday_str else _WEEKDAYS[day_index % 7]
+    return wd in allowed
 
 
 def _room_allowed_for_unit(room: dict, student_dept_id: str) -> bool:
@@ -192,12 +193,91 @@ class OptimizerService:
                 conflict_dict[pair] = max(conflict_dict.get(pair, 0), int(r["shared"]))
             return conflict_dict
 
+    def load_exam_calendar(self, exam_period_id: str) -> dict:
+        """
+        Derive optimizer grid parameters from a saved ExamPeriod.
+        Returns dict with: exam_days, slots_per_day, start_hour,
+        blocked_slot_indices, day_weekday_map, day_date_labels,
+        slot_starts, slot_ends, session_mode.
+        """
+        from core.models import ExamPeriod, ExamDateSlot
+
+        try:
+            period = ExamPeriod.objects.get(id=exam_period_id)
+        except ExamPeriod.DoesNotExist:
+            raise ValueError(f"ExamPeriod {exam_period_id} not found")
+
+        slots_qs = list(
+            ExamDateSlot.objects.filter(exam_period=period).order_by("date", "start_time")
+        )
+        if not slots_qs:
+            raise ValueError(
+                f"No slots generated for ExamPeriod {exam_period_id}. "
+                "Call POST /api/exam-periods/{id}/generate-slots/ first."
+            )
+
+        # Unique, ordered time values that define one day's grid
+        all_start_times = sorted(set(s.start_time for s in slots_qs))
+        end_time_by_start = {}
+        for s in slots_qs:
+            end_time_by_start.setdefault(s.start_time, s.end_time)
+
+        slots_per_day = len(all_start_times)
+        start_idx_map = {t: i for i, t in enumerate(all_start_times)}
+        start_hour = all_start_times[0].hour if all_start_times else 8
+
+        # Active dates = dates with at least one non-blocked slot
+        active_dates = sorted(set(s.date for s in slots_qs if not s.is_blocked))
+        if not active_dates:
+            raise ValueError("All exam slots are blocked. Unblock at least one slot.")
+
+        date_to_day_idx = {d: i for i, d in enumerate(active_dates)}
+        exam_days = len(active_dates)
+
+        weekday_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        day_weekday_map = {i: weekday_names[d.weekday()] for i, d in enumerate(active_dates)}
+        day_date_labels = [
+            f"{weekday_names[d.weekday()]} {d.strftime('%d/%m')}" for d in active_dates
+        ]
+        slot_starts = [t.strftime("%H:%M") for t in all_start_times]
+        slot_ends = [end_time_by_start[t].strftime("%H:%M") for t in all_start_times]
+
+        blocked_slot_indices: set[int] = set()
+        for s in slots_qs:
+            if s.date not in date_to_day_idx:
+                continue  # fully-blocked day not in active set
+            if s.is_blocked and s.start_time in start_idx_map:
+                day_idx = date_to_day_idx[s.date]
+                slot_within = start_idx_map[s.start_time]
+                blocked_slot_indices.add(day_idx * slots_per_day + slot_within)
+
+        # session_mode = True means each ExamDateSlot is a full exam session; dur=1 in optimizer
+        session_mode = period.config.get("slot_mode") == "session"
+
+        return {
+            "exam_days": exam_days,
+            "slots_per_day": slots_per_day,
+            "start_hour": start_hour,
+            "blocked_slot_indices": blocked_slot_indices,
+            "day_weekday_map": day_weekday_map,
+            "day_date_labels": day_date_labels,
+            "slot_starts": slot_starts,
+            "slot_ends": slot_ends,
+            "session_mode": session_mode,
+        }
+
     def solve(self, hard_threshold: int = 5, time_limit: int = None, mip_gap: float = 0.10,
               no_back_to_back: bool = False, no_back_to_back_depts: list = None,
               exam_days: int = 5, slots_per_day: int = 10,
               start_hour: int = 8, year_order_weight: float = 100.0,
               year_order_sequence: list = None, year_order_weights: dict = None,
-              weight_config: dict = None) -> dict:
+              weight_config: dict = None,
+              blocked_slot_indices: set = None,
+              day_weekday_map: dict = None,
+              day_date_labels: list = None,
+              slot_starts_override: list = None,
+              slot_ends_override: list = None,
+              session_mode: bool = False) -> dict:
         try:
             import gurobipy as gp
             from gurobipy import GRB, quicksum
@@ -220,11 +300,18 @@ class OptimizerService:
         n_slots = exam_days * slots_per_day
         def _fmt(minutes: int) -> str:
             return f"{minutes // 60:02d}:{minutes % 60:02d}"
-        base_min = start_hour * 60 + 30
-        slot_starts = [_fmt(base_min + i * 30) for i in range(slots_per_day)]
-        slot_ends   = [_fmt(base_min + (i + 1) * 30) for i in range(slots_per_day)]
+        if slot_starts_override:
+            slot_starts = slot_starts_override
+            slot_ends = slot_ends_override
+        else:
+            base_min = start_hour * 60 + 30
+            slot_starts = [_fmt(base_min + i * 30) for i in range(slots_per_day)]
+            slot_ends   = [_fmt(base_min + (i + 1) * 30) for i in range(slots_per_day)]
         default_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        day_labels = [default_days[i % 7] if exam_days <= 7 else f"Day {i+1}" for i in range(exam_days)]
+        day_labels = (
+            day_date_labels if day_date_labels
+            else [default_days[i % 7] if exam_days <= 7 else f"Day {i+1}" for i in range(exam_days)]
+        )
 
         info = {r["unit_key"]: r for r in courses}
         C = list(info.keys())
@@ -232,15 +319,27 @@ class OptimizerService:
         logger.info(f"Optimizer: {len(C)} scheduling units, {len(conflicts)} conflict pairs, {len(ROOMS)} rooms")
 
         for c in C:
-            hours = info[c].get("weekly_hours") or 0
-            # Exam lengths in minutes: ≤2 weekly hours→60 min, 3→120 min, ≥4→180 min
-            # Each slot is 30 min, so multiply slot count by 2
-            dur = 6 if hours >= 4 else (4 if hours == 3 else 2)
-            info[c]["duration"] = dur
+            if session_mode:
+                # Each user-defined session holds exactly one exam regardless of course length
+                info[c]["duration"] = 1
+            else:
+                hours = info[c].get("weekly_hours") or 0
+                # Exam lengths in minutes: ≤2 weekly hours→60 min, 3→120 min, ≥4→180 min
+                # Each slot is 30 min, so multiply slot count by 2
+                dur = 6 if hours >= 4 else (4 if hours == 3 else 2)
+                info[c]["duration"] = dur
 
         def valid_starts(c):
             dur = info[c]["duration"]
-            return [s for s in range(n_slots) if (s % slots_per_day) + dur <= slots_per_day]
+            blocked = blocked_slot_indices or set()
+            result = []
+            for s in range(n_slots):
+                if (s % slots_per_day) + dur > slots_per_day:
+                    continue
+                if any((s + k) in blocked for k in range(dur)):
+                    continue
+                result.append(s)
+            return result
 
         groups = defaultdict(list)
         for c in C:
@@ -291,7 +390,8 @@ class OptimizerService:
                     continue
                 for s in valid_starts(c):
                     day_idx = s // slots_per_day
-                    if not _room_allowed_on_day(rooms[r], day_idx):
+                    wd_str = day_weekday_map.get(day_idx) if day_weekday_map else None
+                    if not _room_allowed_on_day(rooms[r], day_idx, wd_str):
                         continue
                     x_start[(c, r, s)] = m.addVar(vtype=GRB.BINARY, name=f"x[{short[c]},{r},{s}]")
 

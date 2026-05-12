@@ -62,6 +62,15 @@ class OptimizeRequestSerializer(serializers.Serializer):
     year_order_sequence = serializers.ListField(child=serializers.IntegerField(min_value=1, max_value=10), required=False, allow_null=True, default=None, help_text="Year levels in desired scheduling order, earliest first (e.g. [4,1] puts 4th year exams first).")
     year_order_weights = serializers.DictField(child=serializers.FloatField(min_value=10.0, max_value=500.0), required=False, allow_null=True, default=None, help_text="Per-year penalty weights as {year_level: weight}. Falls back to year_order_weight for unlisted years.")
     proposed_params = serializers.DictField(required=False, allow_null=True, default=None, help_text="Raw LLM proposed_params (blueprint code → value). Used to derive weight_config and other non-form LLM suggestions.")
+    exam_period_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "ExamPeriod ID. When set, the optimizer derives exam_days, slots_per_day, "
+            "start_hour, and blocked slots from the saved calendar instead of form fields."
+        ),
+    )
 
     def validate(self, data):
         # Each slot is 30 min; first slot starts at start_hour:30

@@ -50,6 +50,22 @@ def run_optimizer_task(self, solution_id: str):
         svc = OptimizerService(term_id=str(solution.term_id))
         params = solution.parameters
 
+        calendar_kwargs = {}
+        exam_period_id = params.get("exam_period_id")
+        if exam_period_id:
+            calendar = svc.load_exam_calendar(exam_period_id)
+            calendar_kwargs = {
+                "exam_days": calendar["exam_days"],
+                "slots_per_day": calendar["slots_per_day"],
+                "start_hour": calendar["start_hour"],
+                "blocked_slot_indices": calendar["blocked_slot_indices"],
+                "day_weekday_map": calendar["day_weekday_map"],
+                "day_date_labels": calendar["day_date_labels"],
+                "slot_starts_override": calendar["slot_starts"],
+                "slot_ends_override": calendar["slot_ends"],
+                "session_mode": calendar["session_mode"],
+            }
+
         result = svc.solve(
             hard_threshold=params.get('hard_threshold', 5),
             time_limit=params.get('time_limit', None),
@@ -62,6 +78,7 @@ def run_optimizer_task(self, solution_id: str):
             year_order_sequence=params.get('year_order_sequence', None),
             year_order_weights=params.get('year_order_weights', None),
             weight_config=params.get('weight_config', None),
+            **calendar_kwargs,
         )
 
         raw_status = result.get('status', 'completed')
