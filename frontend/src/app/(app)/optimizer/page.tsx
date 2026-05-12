@@ -45,6 +45,13 @@ export default function OptimizerPage() {
     year_order_weights: null as Record<string, number> | null,
   });
 
+  const [examPeriodId, setExamPeriodId] = useState<string>("");
+  const { data: periodsData } = useFetch(
+    params.term_id ? `/exam-periods/?term_id=${params.term_id}` : "",
+    [params.term_id]
+  );
+  const examPeriods: { id: string; name: string; start_date: string; end_date: string }[] = periodsData || [];
+
   const [runSt, setRunSt] = useState("idle");
   const [solId, setSolId] = useState<string | null>(null);
   const [submitErr, setSubErr] = useState("");
@@ -93,9 +100,10 @@ export default function OptimizerPage() {
     try {
       const { name, ...rest } = params;
       const payload = name ? { ...rest, name } : rest;
-      const finalPayload = pendingProposedParams
-        ? { ...payload, proposed_params: pendingProposedParams }
-        : payload;
+      const finalPayload = {
+        ...(pendingProposedParams ? { ...payload, proposed_params: pendingProposedParams } : payload),
+        ...(examPeriodId ? { exam_period_id: examPeriodId } : {}),
+      };
       const res = await api.post("/optimize/run/", finalPayload);
       const id = res?.task_id || res?.solution_id || res?.id;
       if (!id) throw new Error("Backend'den geçerli bir task/solution ID alınamadı.");
@@ -134,6 +142,7 @@ export default function OptimizerPage() {
   const applyToForm = () => {
     if (!llmResult?.optimizer_kwargs) return;
     setPendingProposedParams(llmResult.proposed_params ?? null);
+    setExamPeriodId("");  // LLM config uses manual params
     const kw = llmResult.optimizer_kwargs as any;
     setParams(p => ({
       ...p,
@@ -415,27 +424,66 @@ export default function OptimizerPage() {
           <SL>TEMEL PARAMETRELER</SL>
           <div style={{ marginBottom: 16 }}>
             <label style={lStyle}>AKTİF DÖNEM</label>
-            <select style={{ ...iStyle, cursor: "pointer" }} value={params.term_id} onChange={e => setParams({ ...params, term_id: e.target.value })}>
+            <select style={{ ...iStyle, cursor: "pointer" }} value={params.term_id} onChange={e => { setParams({ ...params, term_id: e.target.value }); setExamPeriodId(""); }}>
               <option value="">— Dönem seçin —</option>
               {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </div>
+
+          {/* Exam calendar selector — shown whenever a term is selected */}
+          {params.term_id && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={lStyle}>SINAV TAKVİMİ</label>
+              {examPeriods.length > 0 ? (
+                <select
+                  style={{ ...iStyle, cursor: "pointer", borderColor: examPeriodId ? C.green : C.border }}
+                  value={examPeriodId}
+                  onChange={e => setExamPeriodId(e.target.value)}
+                >
+                  <option value="">— Manuel parametreler kullan —</option>
+                  {examPeriods.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.start_date} → {p.end_date})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ fontSize: 12, color: C.textMuted, padding: "9px 12px", border: `1px dashed ${C.border}`, borderRadius: 6 }}>
+                  Bu dönem için henüz sınav takvimi yok — önce{" "}
+                  <a href="/exam-calendar" style={{ color: C.accent }}>Sınav Takvimi</a>{" "}
+                  sayfasından oluşturun.
+                </div>
+              )}
+              {examPeriodId && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: C.green, fontWeight: 700 }}>✓ TAKVİM AKTİF</span>
+                  <span style={{ fontSize: 11, color: C.textMuted }}>— gün sayısı, saatler ve engellenen slotlar takvimden alınır</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ marginBottom: 16 }}>
             <label style={lStyle}>ÇÖZÜM ADI <span style={{ color: C.textMuted }}>(opsiyonel)</span></label>
             <input style={iStyle} placeholder="Örn: Güz 2025 Test 3" value={params.name} onChange={e => setParams({ ...params, name: e.target.value })} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            {[
-              { label: "SINAV GÜN SAYISI", key: "exam_days" },
-              { label: "GÜN BAŞI SLOT (30dk)", key: "slots_per_day" },
-              { label: "BAŞLANGIÇ SAATİ", key: "start_hour" },
-            ].map(f => (
-              <div key={f.key}>
-                <label style={lStyle}>{f.label}</label>
-                <input style={iStyle} type="number" value={params[f.key as keyof typeof params] as number} onChange={e => setParams({ ...params, [f.key]: +e.target.value })} />
-              </div>
-            ))}
-          </div>
+
+          {/* Hide time-grid fields when calendar is active — it provides these values */}
+          {!examPeriodId && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+              {[
+                { label: "SINAV GÜN SAYISI", key: "exam_days" },
+                { label: "GÜN BAŞI SLOT (30dk)", key: "slots_per_day" },
+                { label: "BAŞLANGIÇ SAATİ", key: "start_hour" },
+              ].map(f => (
+                <div key={f.key}>
+                  <label style={lStyle}>{f.label}</label>
+                  <input style={iStyle} type="number" value={params[f.key as keyof typeof params] as number} onChange={e => setParams({ ...params, [f.key]: +e.target.value })} />
+                </div>
+              ))}
+            </div>
+          )}
+
           <div>
             <label style={lStyle}>ÇAKIŞMA EŞİĞİ (HARD THRESHOLD)</label>
             <input style={iStyle} type="number" min={0} value={params.hard_threshold} onChange={e => setParams({ ...params, hard_threshold: +e.target.value })} />

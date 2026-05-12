@@ -3,7 +3,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from core.models import (
     Organization, Term, AcademicUnit, CourseCatalog, CourseSection,
-    StudentGroup, Student, Enrollment
+    StudentGroup, Student, Enrollment, ExamPeriod, ExamDateSlot,
 )
 
 
@@ -235,3 +235,92 @@ class YearBandComputationTests(TestCase):
         from core.services.optimizer import compute_year_bands
         bands = compute_year_bands([], 10)
         self.assertEqual(bands, {})
+
+
+# --- load_exam_calendar ---
+
+import datetime
+
+
+@pytest.fixture
+def period_with_slots(db):
+    org = Organization.objects.create(name="Test Uni")
+    term = Term.objects.create(organization=org, name="Fall 2025", status="Active")
+    period = ExamPeriod.objects.create(
+        term=term, name="Finals", exam_type="FINAL",
+        start_date=datetime.date(2025, 6, 2),  # Monday
+        end_date=datetime.date(2025, 6, 4),    # Wednesday (3 active days)
+    )
+    # Day 0 (Mon 2025-06-02): 2 slots — slot 0 available, slot 1 blocked
+    ExamDateSlot.objects.bulk_create([
+        ExamDateSlot(exam_period=period, date=datetime.date(2025, 6, 2),
+                     start_time=datetime.time(8, 30), end_time=datetime.time(9, 0),
+                     label="08:30-09:00", is_blocked=False),
+        ExamDateSlot(exam_period=period, date=datetime.date(2025, 6, 2),
+                     start_time=datetime.time(9, 0), end_time=datetime.time(9, 30),
+                     label="09:00-09:30", is_blocked=True),
+        # Day 1 (Tue 2025-06-03): 2 slots available
+        ExamDateSlot(exam_period=period, date=datetime.date(2025, 6, 3),
+                     start_time=datetime.time(8, 30), end_time=datetime.time(9, 0),
+                     label="08:30-09:00", is_blocked=False),
+        ExamDateSlot(exam_period=period, date=datetime.date(2025, 6, 3),
+                     start_time=datetime.time(9, 0), end_time=datetime.time(9, 30),
+                     label="09:00-09:30", is_blocked=False),
+        # Day 2 (Wed 2025-06-04): all slots blocked → not an active day
+        ExamDateSlot(exam_period=period, date=datetime.date(2025, 6, 4),
+                     start_time=datetime.time(8, 30), end_time=datetime.time(9, 0),
+                     label="08:30-09:00", is_blocked=True),
+        ExamDateSlot(exam_period=period, date=datetime.date(2025, 6, 4),
+                     start_time=datetime.time(9, 0), end_time=datetime.time(9, 30),
+                     label="09:00-09:30", is_blocked=True),
+    ])
+    return period
+
+
+@pytest.mark.django_db
+def test_load_exam_calendar_active_days(period_with_slots):
+    from core.services.optimizer import OptimizerService
+    term_id = str(period_with_slots.term_id)
+    svc = OptimizerService(term_id=term_id)
+    cal = svc.load_exam_calendar(str(period_with_slots.id))
+    # Only Mon and Tue are active (Wed is fully blocked)
+    assert cal["exam_days"] == 2
+
+
+@pytest.mark.django_db
+def test_load_exam_calendar_slots_per_day(period_with_slots):
+    from core.services.optimizer import OptimizerService
+    svc = OptimizerService(term_id=str(period_with_slots.term_id))
+    cal = svc.load_exam_calendar(str(period_with_slots.id))
+    assert cal["slots_per_day"] == 2
+
+
+@pytest.mark.django_db
+def test_load_exam_calendar_blocked_indices(period_with_slots):
+    from core.services.optimizer import OptimizerService
+    svc = OptimizerService(term_id=str(period_with_slots.term_id))
+    cal = svc.load_exam_calendar(str(period_with_slots.id))
+    # Day 0 slot 1 (index 1) is blocked; day 1 has none blocked
+    assert 1 in cal["blocked_slot_indices"]
+    assert 0 not in cal["blocked_slot_indices"]
+
+
+@pytest.mark.django_db
+def test_load_exam_calendar_day_weekday_map(period_with_slots):
+    from core.services.optimizer import OptimizerService
+    svc = OptimizerService(term_id=str(period_with_slots.term_id))
+    cal = svc.load_exam_calendar(str(period_with_slots.id))
+    # 2025-06-02 is Monday, 2025-06-03 is Tuesday
+    assert cal["day_weekday_map"][0] == "Mon"
+    assert cal["day_weekday_map"][1] == "Tue"
+
+
+@pytest.mark.django_db
+def test_load_exam_calendar_raises_for_unknown_period(db):
+    import uuid
+    from core.services.optimizer import OptimizerService
+    org = Organization.objects.create(name="X")
+    term = Term.objects.create(organization=org, name="T", status="Active")
+    svc = OptimizerService(term_id=str(term.id))
+    with pytest.raises(ValueError, match="not found"):
+        svc.load_exam_calendar(str(uuid.uuid4()))

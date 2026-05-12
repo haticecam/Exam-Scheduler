@@ -5,6 +5,7 @@ from .views import (
     SimulateStudentsView, TermViewSet, StudentViewSet, OptimizerViewSet, DashboardStatsView,
     ResourceViewSet, LLMConfigureView, LLMConfirmView, LLMDiagnoseView, LLMLibraryView,
 )
+from .views_exam import ExamPeriodViewSet, ExamDateSlotViewSet
 
 router = DefaultRouter()
 router.register(r'organizations', OrganizationViewSet, basename='organization')
@@ -14,6 +15,8 @@ router.register(r'terms', TermViewSet, basename='term')
 router.register(r'students', StudentViewSet, basename='student')
 router.register(r'resources', ResourceViewSet, basename='resource')
 router.register(r'optimize', OptimizerViewSet, basename='optimize')
+router.register(r'exam-periods', ExamPeriodViewSet, basename='exam-period')
+router.register(r'exam-date-slots', ExamDateSlotViewSet, basename='exam-date-slot')
 
 urlpatterns = [
     path('status/', SystemStatusView.as_view(), name='system-status'),

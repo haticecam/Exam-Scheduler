@@ -50,19 +50,37 @@ def run_optimizer_task(self, solution_id: str):
         svc = OptimizerService(term_id=str(solution.term_id))
         params = solution.parameters
 
-        result = svc.solve(
-            hard_threshold=params.get('hard_threshold', 5),
-            time_limit=params.get('time_limit', None),
-            mip_gap=params.get('mip_gap', 0.10),
-            no_back_to_back=params.get('no_back_to_back', False),
-            exam_days=params.get('exam_days', 5),
-            slots_per_day=params.get('slots_per_day', 10),
-            start_hour=params.get('start_hour', 8),
-            year_order_weight=params.get('year_order_weight', 100.0),
-            year_order_sequence=params.get('year_order_sequence', None),
-            year_order_weights=params.get('year_order_weights', None),
-            weight_config=params.get('weight_config', None),
-        )
+        calendar_kwargs = {}
+        exam_period_id = params.get("exam_period_id")
+        if exam_period_id:
+            calendar = svc.load_exam_calendar(exam_period_id)
+            calendar_kwargs = {
+                "exam_days": calendar["exam_days"],
+                "slots_per_day": calendar["slots_per_day"],
+                "start_hour": calendar["start_hour"],
+                "blocked_slot_indices": calendar["blocked_slot_indices"],
+                "day_weekday_map": calendar["day_weekday_map"],
+                "day_date_labels": calendar["day_date_labels"],
+                "slot_starts_override": calendar["slot_starts"],
+                "slot_ends_override": calendar["slot_ends"],
+                "session_mode": calendar["session_mode"],
+            }
+
+        solve_kwargs = {
+            'hard_threshold': params.get('hard_threshold', 5),
+            'time_limit': params.get('time_limit', None),
+            'mip_gap': params.get('mip_gap', 0.10),
+            'no_back_to_back': params.get('no_back_to_back', False),
+            'exam_days': params.get('exam_days', 5),
+            'slots_per_day': params.get('slots_per_day', 10),
+            'start_hour': params.get('start_hour', 8),
+            'year_order_weight': params.get('year_order_weight', 100.0),
+            'year_order_sequence': params.get('year_order_sequence', None),
+            'year_order_weights': params.get('year_order_weights', None),
+            'weight_config': params.get('weight_config', None),
+        }
+        solve_kwargs.update(calendar_kwargs)  # calendar overrides exam_days/slots_per_day/start_hour
+        result = svc.solve(**solve_kwargs)
 
         raw_status = result.get('status', 'completed')
         # Normalize to uppercase, replace spaces/parens → underscores for consistency
