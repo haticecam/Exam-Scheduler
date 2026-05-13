@@ -7,6 +7,7 @@ from .views import (
     CourseSectionViewSet,
 )
 from .views_exam import ExamPeriodViewSet, ExamDateSlotViewSet
+from .views_simultaneous import SimultaneousExamGroupViewSet
 
 router = DefaultRouter()
 router.register(r'organizations', OrganizationViewSet, basename='organization')
@@ -19,6 +20,7 @@ router.register(r'course-sections', CourseSectionViewSet, basename='course-secti
 router.register(r'optimize', OptimizerViewSet, basename='optimize')
 router.register(r'exam-periods', ExamPeriodViewSet, basename='exam-period')
 router.register(r'exam-date-slots', ExamDateSlotViewSet, basename='exam-date-slot')
+router.register(r'simultaneous-groups', SimultaneousExamGroupViewSet, basename='simultaneous-group')
 
 urlpatterns = [
     path('status/', SystemStatusView.as_view(), name='system-status'),

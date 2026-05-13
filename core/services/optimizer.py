@@ -281,6 +281,8 @@ class OptimizerService:
             "slot_starts": slot_starts,
             "slot_ends": slot_ends,
             "session_mode": session_mode,
+            "active_dates": active_dates,
+            "all_start_times": all_start_times,
         }
 
     def solve(self, hard_threshold: int = 5, time_limit: int = None, mip_gap: float = 0.10,
@@ -294,7 +296,8 @@ class OptimizerService:
               day_date_labels: list = None,
               slot_starts_override: list = None,
               slot_ends_override: list = None,
-              session_mode: bool = False) -> dict:
+              session_mode: bool = False,
+              pinned_exams: dict = None) -> dict:
         try:
             import gurobipy as gp
             from gurobipy import GRB, quicksum
@@ -414,6 +417,17 @@ class OptimizerService:
                     x_start[(c, r, s)] = m.addVar(vtype=GRB.BINARY, name=f"x[{short[c]},{r},{s}]")
 
         m.update()
+
+        if pinned_exams:
+            for unit_key, slot_idx in pinned_exams.items():
+                if unit_key not in info:
+                    logger.warning(f"pinned_exams: unit_key {unit_key!r} not in courses — skipped")
+                    continue
+                if (unit_key, slot_idx) not in y:
+                    logger.warning(f"pinned_exams: slot {slot_idx} invalid for {unit_key!r} — skipped")
+                    continue
+                y[(unit_key, slot_idx)].lb = 1
+                logger.info(f"Pinned {unit_key!r} → slot {slot_idx}")
 
         for c in C:
             m.addConstr(quicksum(y[(c, s)] for s in valid_starts(c)) == 1,
