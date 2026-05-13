@@ -310,7 +310,7 @@ export default function ExamCalendarPage() {
               marginBottom: -1,
             }}
           >
-            {tab === "calendar" ? "Sınav Takvimi" : "Optimizasyon Listesi"}
+            {tab === "calendar" ? "Sınav Takvimi" : "Ders Seçimi"}
           </button>
         ))}
       </div>
