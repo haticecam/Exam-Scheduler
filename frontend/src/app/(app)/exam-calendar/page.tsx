@@ -99,6 +99,15 @@ export default function ExamCalendarPage() {
   const [createErr, setCreateErr] = useState("");
   const [createLoading, setCreateLoading] = useState(false);
 
+  const [editPeriod, setEditPeriod] = useState<ExamPeriod | null>(null);
+  const [editPeriodForm, setEditPeriodForm] = useState({ name: "", exam_type: "FINAL", start_date: "", end_date: "" });
+  const [editPeriodLoading, setEditPeriodLoading] = useState(false);
+  const [editPeriodError, setEditPeriodError] = useState("");
+
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
   const createPeriod = async () => {
     if (!selectedTermId) { setCreateErr("Dönem seçin."); return; }
     setCreateLoading(true); setCreateErr("");
@@ -113,6 +122,59 @@ export default function ExamCalendarPage() {
       setCreateErr(err.data?.detail || JSON.stringify((e as { data?: unknown }).data) || err.message || "Hata");
     } finally {
       setCreateLoading(false);
+    }
+  };
+
+  const openEditPeriod = (period: ExamPeriod) => {
+    setEditPeriod(period);
+    setEditPeriodForm({ name: period.name, exam_type: period.exam_type, start_date: period.start_date, end_date: period.end_date });
+    setEditPeriodError("");
+  };
+
+  const handleEditPeriod = async () => {
+    if (!editPeriod) return;
+    const datesChanged =
+      editPeriodForm.start_date !== editPeriod.start_date ||
+      editPeriodForm.end_date !== editPeriod.end_date;
+    const shouldRegenerateSlots =
+      datesChanged &&
+      editPeriod.id === selectedPeriodId &&
+      slotsLoaded &&
+      localSlots.length > 0;
+
+    setEditPeriodLoading(true); setEditPeriodError("");
+    try {
+      await api.patch(`/exam-periods/${editPeriod.id}/`, editPeriodForm);
+      refetchPeriods();
+      setEditPeriod(null);
+      if (shouldRegenerateSlots) {
+        setSlotsLoaded(false);
+        const body = genMode === "auto"
+          ? { day_start: genFields.day_start, day_end: genFields.day_end }
+          : { day_start: genFields.day_start, day_end: genFields.day_end, slot_duration_minutes: genFields.slot_duration_minutes };
+        await api.post(`/exam-periods/${editPeriod.id}/generate-slots/`, body);
+        refetchSlots();
+      }
+    } catch (e: unknown) {
+      const err = e as { data?: { detail?: string }; message?: string };
+      setEditPeriodError(err.data?.detail || JSON.stringify((e as { data?: unknown }).data) || err.message || "Hata");
+    } finally {
+      setEditPeriodLoading(false);
+    }
+  };
+
+  const handleDeletePeriod = async (id: string) => {
+    setDeleteLoading(true); setDeleteError("");
+    try {
+      await api.delete(`/exam-periods/${id}/`);
+      if (selectedPeriodId === id) { setSelectedPeriodId(""); setSlotsLoaded(false); setLocalSlots([]); }
+      setDeleteConfirmId(null);
+      refetchPeriods();
+    } catch (e: unknown) {
+      const err = e as { data?: { detail?: string }; message?: string };
+      setDeleteError(err.data?.detail || err.message || "Silme başarısız.");
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -333,7 +395,7 @@ export default function ExamCalendarPage() {
                 <div>
                   <label style={lStyle}>MEVCUT SINAV TAKVİMİ</label>
                   <select style={{ ...iStyle, cursor: "pointer" }} value={selectedPeriodId}
-                    onChange={e => { setSelectedPeriodId(e.target.value); setSlotsLoaded(false); }}>
+                    onChange={e => { setSelectedPeriodId(e.target.value); setSlotsLoaded(false); setDeleteConfirmId(null); setDeleteError(""); }}>
                     <option value="">— Takvim seçin —</option>
                     {periods.map(p => (
                       <option key={p.id} value={p.id}>
@@ -341,6 +403,46 @@ export default function ExamCalendarPage() {
                       </option>
                     ))}
                   </select>
+                  {selectedPeriod && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => openEditPeriod(selectedPeriod)}
+                        style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: C.text, ...mono, fontSize: 12 }}
+                      >
+                        Düzenle
+                      </button>
+                      {deleteConfirmId === selectedPeriod.id ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={deleteLoading}
+                            onClick={() => handleDeletePeriod(selectedPeriod.id)}
+                            style={{ background: C.red, border: "none", borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: "#fff", ...mono, fontSize: 12, fontWeight: 700, opacity: deleteLoading ? 0.6 : 1 }}
+                          >
+                            {deleteLoading ? "Siliniyor…" : "Evet, Sil"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deleteLoading}
+                            onClick={() => { setDeleteConfirmId(null); setDeleteError(""); }}
+                            style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: C.textMuted, ...mono, fontSize: 12 }}
+                          >
+                            İptal
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setDeleteConfirmId(selectedPeriod.id); setDeleteError(""); }}
+                          style={{ background: "transparent", border: `1px solid ${C.red}`, borderRadius: 6, padding: "6px 14px", cursor: "pointer", color: C.red, ...mono, fontSize: 12 }}
+                        >
+                          Sil
+                        </button>
+                      )}
+                      {deleteError && <span style={{ fontSize: 11, color: C.red }}>{deleteError}</span>}
+                    </div>
+                  )}
                 </div>
               )}
             </Card>
@@ -699,6 +801,49 @@ export default function ExamCalendarPage() {
           </DataTable>
         </div>
       )}
+
+      {/* Edit ExamPeriod dialog */}
+      <Dialog open={!!editPeriod} onOpenChange={open => { if (!open) setEditPeriod(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Takvimi Düzenle</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ep-name">Takvim Adı</Label>
+              <Input id="ep-name" value={editPeriodForm.name} onChange={e => setEditPeriodForm(f => ({ ...f, name: e.target.value }))} autoFocus />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ep-type">Tür</Label>
+              <select
+                id="ep-type"
+                value={editPeriodForm.exam_type}
+                onChange={e => setEditPeriodForm(f => ({ ...f, exam_type: e.target.value }))}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                {EXAM_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="ep-start">Başlangıç Tarihi</Label>
+                <Input id="ep-start" type="date" value={editPeriodForm.start_date} onChange={e => setEditPeriodForm(f => ({ ...f, start_date: e.target.value }))} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="ep-end">Bitiş Tarihi</Label>
+                <Input id="ep-end" type="date" value={editPeriodForm.end_date} onChange={e => setEditPeriodForm(f => ({ ...f, end_date: e.target.value }))} />
+              </div>
+            </div>
+            {editPeriodError && <p className="text-sm text-destructive">{editPeriodError}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditPeriod(null)} disabled={editPeriodLoading}>İptal</Button>
+            <Button onClick={handleEditPeriod} disabled={editPeriodLoading || !editPeriodForm.name || !editPeriodForm.start_date || !editPeriodForm.end_date}>
+              {editPeriodLoading ? "Kaydediliyor…" : "Kaydet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit dialog (optimization tab) */}
       <Dialog open={!!editCourse} onOpenChange={open => { if (!open) setEditCourse(null); }}>
