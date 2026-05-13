@@ -109,7 +109,7 @@ def run_optimizer_task(self, solution_id: str):
         courses_for_pin = svc.load_courses() if exam_period_id else []
         pinned_exams = _build_pinned_exams(
             exam_period_id,
-            calendar_kwargs if exam_period_id else {},
+            calendar if exam_period_id else {},
             courses_for_pin,
         )
 
