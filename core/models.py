@@ -220,6 +220,7 @@ class CourseCatalog(models.Model):
     requirement = models.CharField(max_length=50, choices=CourseRequirementType.choices, null=True, blank=True)
     default_credits = models.DecimalField(max_digits=3, decimal_places=1, null=True, blank=True)
     attributes = models.JSONField(default=dict, blank=True)
+    exam_duration_minutes = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -340,9 +341,24 @@ class ExamPeriod(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     config = models.JSONField(default=dict, blank=True)
+    excluded_sections = models.ManyToManyField(
+        'CourseSection',
+        through='ExamPeriodSectionExclusion',
+        related_name='excluded_in_periods',
+        blank=True,
+    )
 
     class Meta:
         db_table = 'exam_period'
+
+
+class ExamPeriodSectionExclusion(models.Model):
+    exam_period = models.ForeignKey(ExamPeriod, on_delete=models.CASCADE, related_name='exclusions')
+    course_section = models.ForeignKey('CourseSection', on_delete=models.CASCADE, related_name='period_exclusions')
+
+    class Meta:
+        db_table = 'examperiod_section_exclusion'
+        unique_together = ('exam_period', 'course_section')
 
 class ExamDateSlot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

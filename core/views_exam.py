@@ -2,7 +2,7 @@ import datetime
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import ExamPeriod, ExamDateSlot
+from .models import ExamPeriod, ExamDateSlot, CourseSection, ExamPeriodSectionExclusion
 from .serializers_exam import ExamPeriodSerializer, ExamDateSlotSerializer, GenerateSlotsRequestSerializer
 
 
@@ -88,6 +88,25 @@ class ExamPeriodViewSet(viewsets.ModelViewSet):
         qs = period.date_slots.order_by("date", "start_time")
         serializer = ExamDateSlotSerializer(qs, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="toggle-exclusion")
+    def toggle_exclusion(self, request, pk=None):
+        period = self.get_object()
+        section_id = request.data.get("section_id")
+        if not section_id:
+            return Response({"error": "section_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            section = CourseSection.objects.get(id=section_id)
+        except CourseSection.DoesNotExist:
+            return Response({"error": "Section not found"}, status=status.HTTP_404_NOT_FOUND)
+        exclusion = ExamPeriodSectionExclusion.objects.filter(exam_period=period, course_section=section).first()
+        if exclusion:
+            exclusion.delete()
+            excluded = False
+        else:
+            ExamPeriodSectionExclusion.objects.create(exam_period=period, course_section=section)
+            excluded = True
+        return Response({"excluded": excluded, "section_id": str(section_id)})
 
 
 class ExamDateSlotViewSet(viewsets.ModelViewSet):

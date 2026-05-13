@@ -13,7 +13,8 @@ from django.http import HttpResponse
 from .models import Organization, CourseCatalog, AcademicUnit, Term, Student, Resource, GeneratedSolution, CourseSection
 from .serializers import (
     OrganizationSerializer, CourseCatalogSerializer, AcademicUnitSerializer, TermSerializer,
-    StudentSerializer, OptimizeRequestSerializer, SimulateStudentsRequestSerializer, ResourceSerializer,
+    StudentSerializer, CourseSectionSerializer, OptimizeRequestSerializer,
+    SimulateStudentsRequestSerializer, ResourceSerializer,
     LLMConfigureRequestSerializer, LLMConfirmRequestSerializer, LLMDiagnoseRequestSerializer,
 )
 from .tasks import dummy_gurobi_task
@@ -201,6 +202,44 @@ class CourseCatalogViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK
         )
+
+
+class CourseSectionViewSet(viewsets.ModelViewSet):
+    """
+    GET /course-sections/?term_id=X&exam_period_id=Y
+    Returns sections with enrolled students. When exam_period_id is supplied,
+    annotates each section with excluded_from_optimization for that period.
+    """
+    serializer_class = CourseSectionSerializer
+    http_method_names = ['get', 'head', 'options']
+
+    def get_queryset(self):
+        from django.db.models import Count, Exists, OuterRef, Value, BooleanField
+        from .models import ExamPeriodSectionExclusion
+        qs = (
+            CourseSection.objects
+            .select_related('course', 'course__academic_unit')
+            .annotate(enrollment_count=Count('enrollments'))
+            .filter(enrollment_count__gt=0)
+        )
+        term_id = self.request.query_params.get('term_id')
+        if term_id:
+            qs = qs.filter(term_id=term_id)
+        exam_period_id = self.request.query_params.get('exam_period_id')
+        if exam_period_id:
+            qs = qs.annotate(
+                excluded_from_optimization=Exists(
+                    ExamPeriodSectionExclusion.objects.filter(
+                        exam_period_id=exam_period_id,
+                        course_section_id=OuterRef('id'),
+                    )
+                )
+            )
+        else:
+            qs = qs.annotate(
+                excluded_from_optimization=Value(False, output_field=BooleanField())
+            )
+        return qs.order_by('course__code')
 
 
 class OrganizationViewSet(viewsets.ModelViewSet):

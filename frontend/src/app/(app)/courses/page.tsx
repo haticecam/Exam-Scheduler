@@ -57,22 +57,26 @@ export default function CoursesPage() {
   const { data, loading, refetch } = useFetch(`/courses/?${queryParams.toString()}`);
   const rows = data?.results || data || [];
 
-  // Edit dialog state
   const [editCourse, setEditCourse] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ code: "", name: "", year_level: "", requirement: "", weekly_hours_lecture: "", weekly_hours_lab: "", default_credits: "" });
+  const [editForm, setEditForm] = useState({
+    code: "", name: "", year_level: "", requirement: "",
+    weekly_hours_lecture: "", weekly_hours_lab: "", default_credits: "",
+    exam_duration_minutes: "",
+  });
   const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState("");
 
-  const openEdit = (course: any) => {
-    setEditCourse(course);
+  const openEdit = (row: any) => {
+    setEditCourse({ ...row, id: row.id });
     setEditForm({
-      code: course.code ?? "",
-      name: course.name ?? "",
-      year_level: course.year_level != null ? String(course.year_level) : "",
-      requirement: course.requirement ?? "COMPULSORY",
-      weekly_hours_lecture: course.weekly_hours_lecture != null ? String(course.weekly_hours_lecture) : "",
-      weekly_hours_lab: course.weekly_hours_lab != null ? String(course.weekly_hours_lab) : "",
-      default_credits: course.default_credits != null ? String(course.default_credits) : "",
+      code: row.code ?? "",
+      name: row.name ?? "",
+      year_level: row.year_level != null ? String(row.year_level) : "",
+      requirement: row.requirement ?? "COMPULSORY",
+      weekly_hours_lecture: row.weekly_hours_lecture != null ? String(row.weekly_hours_lecture) : "",
+      weekly_hours_lab: row.weekly_hours_lab != null ? String(row.weekly_hours_lab) : "",
+      default_credits: row.default_credits != null ? String(row.default_credits) : "",
+      exam_duration_minutes: row.exam_duration_minutes != null ? String(row.exam_duration_minutes) : "",
     });
     setEditError("");
   };
@@ -91,6 +95,8 @@ export default function CoursesPage() {
       if (editForm.weekly_hours_lecture !== "") payload.weekly_hours_lecture = parseInt(editForm.weekly_hours_lecture);
       if (editForm.weekly_hours_lab !== "") payload.weekly_hours_lab = parseInt(editForm.weekly_hours_lab);
       if (editForm.default_credits !== "") payload.default_credits = parseFloat(editForm.default_credits);
+      payload.exam_duration_minutes =
+        editForm.exam_duration_minutes !== "" ? parseInt(editForm.exam_duration_minutes) : null;
 
       await api.patch(`/courses/${editCourse.id}/`, payload);
       refetch();
@@ -176,7 +182,6 @@ export default function CoursesPage() {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* Production: course catalog upload */}
           <Card style={{ padding: 24 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <SL style={{ margin: 0 }}>Ders Kataloğu Yükleme</SL>
@@ -194,7 +199,6 @@ export default function CoursesPage() {
             />
           </Card>
 
-          {/* Demo: cohort size estimates */}
           <Card style={{ padding: 24 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <SL style={{ margin: 0 }}>Kontenjan Tahmini Güncelleme</SL>
@@ -213,7 +217,6 @@ export default function CoursesPage() {
         </div>
       </div>
 
-      {/* Edit dialog */}
       <Dialog open={!!editCourse} onOpenChange={open => { if (!open) setEditCourse(null); }}>
         <DialogContent>
           <DialogHeader>
@@ -262,6 +265,32 @@ export default function CoursesPage() {
                 <Label htmlFor="e-cred">Kredi</Label>
                 <Input id="e-cred" type="number" min={0} step={0.5} value={editForm.default_credits} onChange={set("default_credits")} placeholder="—" />
               </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="e-dur">Sınav Süresi (dk)</Label>
+              <Input
+                id="e-dur"
+                type="number"
+                min={1}
+                value={editForm.exam_duration_minutes}
+                onChange={set("exam_duration_minutes")}
+                placeholder={(() => {
+                  const h = parseInt(editForm.weekly_hours_lecture);
+                  if (!isNaN(h)) {
+                    const auto = h >= 4 ? 180 : h === 3 ? 120 : 60;
+                    return `Otomatik (${auto} dk)`;
+                  }
+                  return "Otomatik";
+                })()}
+              />
+              {editForm.exam_duration_minutes !== "" &&
+                parseInt(editForm.exam_duration_minutes) % 30 !== 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Yuvarlanır: {editForm.exam_duration_minutes} dk →{" "}
+                  {Math.ceil(parseInt(editForm.exam_duration_minutes) / 30) * 30} dk
+                </p>
+              )}
             </div>
 
             {editError && <p className="text-sm text-destructive">{editError}</p>}
