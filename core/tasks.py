@@ -47,11 +47,11 @@ def run_optimizer_task(self, solution_id: str):
         solution.celery_task_id = self.request.id
         solution.save()
 
-        svc = OptimizerService(term_id=str(solution.term_id))
         params = solution.parameters
+        exam_period_id = params.get("exam_period_id")
+        svc = OptimizerService(term_id=str(solution.term_id), exam_period_id=exam_period_id)
 
         calendar_kwargs = {}
-        exam_period_id = params.get("exam_period_id")
         if exam_period_id:
             calendar = svc.load_exam_calendar(exam_period_id)
             calendar_kwargs = {

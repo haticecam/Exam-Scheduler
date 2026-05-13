@@ -275,7 +275,14 @@ export default function CoursesPage() {
                 min={1}
                 value={editForm.exam_duration_minutes}
                 onChange={set("exam_duration_minutes")}
-                placeholder="Otomatik"
+                placeholder={(() => {
+                  const h = parseInt(editForm.weekly_hours_lecture);
+                  if (!isNaN(h)) {
+                    const auto = h >= 4 ? 180 : h === 3 ? 120 : 60;
+                    return `Otomatik (${auto} dk)`;
+                  }
+                  return "Otomatik";
+                })()}
               />
               {editForm.exam_duration_minutes !== "" &&
                 parseInt(editForm.exam_duration_minutes) % 30 !== 0 && (

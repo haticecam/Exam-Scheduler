@@ -251,7 +251,6 @@ class CourseSection(models.Model):
     attributes = models.JSONField(default=dict, blank=True)
     version = models.IntegerField(default=1)
     student_groups = models.ManyToManyField(StudentGroup, related_name='sections', blank=True, db_table='coursesection_student_groups')
-    excluded_from_optimization = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'course_section'
@@ -342,9 +341,24 @@ class ExamPeriod(models.Model):
     start_date = models.DateField()
     end_date = models.DateField()
     config = models.JSONField(default=dict, blank=True)
+    excluded_sections = models.ManyToManyField(
+        'CourseSection',
+        through='ExamPeriodSectionExclusion',
+        related_name='excluded_in_periods',
+        blank=True,
+    )
 
     class Meta:
         db_table = 'exam_period'
+
+
+class ExamPeriodSectionExclusion(models.Model):
+    exam_period = models.ForeignKey(ExamPeriod, on_delete=models.CASCADE, related_name='exclusions')
+    course_section = models.ForeignKey('CourseSection', on_delete=models.CASCADE, related_name='period_exclusions')
+
+    class Meta:
+        db_table = 'examperiod_section_exclusion'
+        unique_together = ('exam_period', 'course_section')
 
 class ExamDateSlot(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

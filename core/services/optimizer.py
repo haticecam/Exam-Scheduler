@@ -83,8 +83,9 @@ class OptimizerService:
     Conflicts are computed over courses shared by students in the same department.
     """
 
-    def __init__(self, term_id: str):
+    def __init__(self, term_id: str, exam_period_id: str = None):
         self.term_id = str(term_id)
+        self.exam_period_id = str(exam_period_id) if exam_period_id else None
 
     def load_rooms(self) -> dict[str, dict]:
         """
@@ -129,10 +130,22 @@ class OptimizerService:
         """
         Returns one row per (course, student_dept) pair.
         enrolled_count = number of students from that dept enrolled in this course.
-        Sections with excluded_from_optimization=True are skipped entirely.
+        Sections excluded for the active exam period are skipped entirely.
         """
+        exclusion_clause = ""
+        params: list = []
+        if self.exam_period_id:
+            exclusion_clause = """
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM examperiod_section_exclusion ese
+                      JOIN course_section cs_excl ON ese.course_section_id = cs_excl.id
+                      WHERE ese.exam_period_id = %s::uuid
+                        AND cs_excl.course_id = cc.id
+                  )"""
+            params.append(self.exam_period_id)
         with connection.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT
                     cc.id::text                   AS course_id,
                     cc.code,
@@ -155,13 +168,13 @@ class OptimizerService:
                 WHERE cc.year_level IS NOT NULL
                   AND cc.requirement IS NOT NULL
                   AND cc.name NOT ILIKE '%%graduation%%'
-                  AND cs.excluded_from_optimization = FALSE
+                  {exclusion_clause}
                 GROUP BY cc.id, cc.code, cc.name, cc.requirement, cc.year_level,
                          cc.weekly_hours_lecture, cc.exam_duration_minutes, au_course.name,
                          sg.academic_unit_id, au_student.name
                 HAVING COUNT(DISTINCT e.student_id) > 0
                 ORDER BY au_student.name, cc.year_level, cc.name
-            """)
+            """, params)
             rows = self._dictfetchall(cur)
             for r in rows:
                 r["unit_key"] = f"{r['course_id']}|{r['student_dept_id']}"

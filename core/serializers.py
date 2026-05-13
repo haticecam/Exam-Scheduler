@@ -57,22 +57,30 @@ class CourseSectionSerializer(serializers.ModelSerializer):
     exam_duration_minutes = serializers.IntegerField(
         source='course.exam_duration_minutes', read_only=True, allow_null=True
     )
+    weekly_hours_lecture = serializers.IntegerField(
+        source='course.weekly_hours_lecture', read_only=True, allow_null=True
+    )
+    excluded_from_optimization = serializers.SerializerMethodField()
 
     def get_academic_unit_name(self, obj):
         if obj.course.academic_unit:
             return obj.course.academic_unit.name
         return None
 
+    def get_excluded_from_optimization(self, obj):
+        return getattr(obj, 'excluded_from_optimization', False)
+
     class Meta:
         model = CourseSection
         fields = [
             'id', 'course_id', 'course_code', 'course_name',
             'year_level', 'academic_unit_name', 'exam_duration_minutes',
-            'excluded_from_optimization',
+            'weekly_hours_lecture', 'excluded_from_optimization',
         ]
         read_only_fields = [
             'id', 'course_id', 'course_code', 'course_name',
             'year_level', 'academic_unit_name', 'exam_duration_minutes',
+            'weekly_hours_lecture', 'excluded_from_optimization',
         ]
 
 

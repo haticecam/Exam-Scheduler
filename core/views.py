@@ -206,15 +206,16 @@ class CourseCatalogViewSet(viewsets.ModelViewSet):
 
 class CourseSectionViewSet(viewsets.ModelViewSet):
     """
-    Read course sections for a term. Supports toggling excluded_from_optimization.
-    GET  /course-sections/?term_id=X  — sections with enrolled students for that term
-    PATCH /course-sections/{id}/      — update excluded_from_optimization
+    GET /course-sections/?term_id=X&exam_period_id=Y
+    Returns sections with enrolled students. When exam_period_id is supplied,
+    annotates each section with excluded_from_optimization for that period.
     """
     serializer_class = CourseSectionSerializer
-    http_method_names = ['get', 'patch', 'head', 'options']
+    http_method_names = ['get', 'head', 'options']
 
     def get_queryset(self):
-        from django.db.models import Count
+        from django.db.models import Count, Exists, OuterRef, Value, BooleanField
+        from .models import ExamPeriodSectionExclusion
         qs = (
             CourseSection.objects
             .select_related('course', 'course__academic_unit')
@@ -224,6 +225,20 @@ class CourseSectionViewSet(viewsets.ModelViewSet):
         term_id = self.request.query_params.get('term_id')
         if term_id:
             qs = qs.filter(term_id=term_id)
+        exam_period_id = self.request.query_params.get('exam_period_id')
+        if exam_period_id:
+            qs = qs.annotate(
+                excluded_from_optimization=Exists(
+                    ExamPeriodSectionExclusion.objects.filter(
+                        exam_period_id=exam_period_id,
+                        course_section_id=OuterRef('id'),
+                    )
+                )
+            )
+        else:
+            qs = qs.annotate(
+                excluded_from_optimization=Value(False, output_field=BooleanField())
+            )
         return qs.order_by('course__code')
 
 
