@@ -41,18 +41,7 @@ const lStyle: React.CSSProperties = {
   ...mono,
 };
 
-export default function SimultaneousExamsTab() {
-  const { data: termsData } = useFetch("/terms/");
-  const terms: any[] = termsData?.results || termsData || [];
-
-  const [termId, setTermId] = useState("");
-  const [periodId, setPeriodId] = useState("");
-
-  const { data: periodsData } = useFetch(
-    termId ? `/exam-periods/?term_id=${termId}` : "",
-    [termId]
-  );
-  const periods: any[] = periodsData || [];
+export default function SimultaneousExamsTab({ termId, periodId }: { termId: string; periodId: string }) {
 
   const { data: groupsData, refetch: refetchGroups } = useFetch(
     periodId ? `/simultaneous-groups/?exam_period_id=${periodId}` : "",
@@ -68,7 +57,7 @@ export default function SimultaneousExamsTab() {
 
   const { data: sectionsData, loading: sectionsLoading } = useFetch(
     termId && periodId
-      ? `/course-sections/?term_id=${termId}&exam_period_id=${periodId}`
+      ? `/course-sections/?term_id=${termId}&exam_period_id=${periodId}&include_empty=true`
       : "",
     [termId, periodId]
   );
@@ -149,32 +138,7 @@ export default function SimultaneousExamsTab() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-      {/* 1 — Selectors */}
-      <Card style={{ padding: "16px 24px" }}>
-        <div style={{ display: "flex", gap: 16 }}>
-          <div style={{ flex: 1, maxWidth: 320 }}>
-            <label style={lStyle}>DÖNEM</label>
-            <select value={termId} onChange={e => { setTermId(e.target.value); setPeriodId(""); }} style={selectStyle}>
-              <option value="">— Dönem seçin —</option>
-              {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          </div>
-          <div style={{ flex: 1, maxWidth: 320 }}>
-            <label style={lStyle}>SINAV TAKVİMİ</label>
-            <select
-              value={periodId}
-              onChange={e => setPeriodId(e.target.value)}
-              style={{ ...selectStyle, opacity: periods.length === 0 ? 0.5 : 1 }}
-              disabled={!termId || periods.length === 0}
-            >
-              <option value="">— Takvim seçin —</option>
-              {periods.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-        </div>
-      </Card>
-
-      {periodId && (
+      {periodId ? (
         <>
           {/* 2 — Existing groups */}
           <Card style={{ padding: "16px 24px" }}>
@@ -288,15 +252,15 @@ export default function SimultaneousExamsTab() {
               </div>
             </div>
 
-            <DataTable headers={["", "Ders Kodu", "Ders Adı", "Sınıf", "Tür"]}>
+            <DataTable headers={["", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Tür"]}>
               {sectionsLoading && (
                 <DataRow>
-                  <DataCell colSpan={5} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell>
+                  <DataCell colSpan={6} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell>
                 </DataRow>
               )}
               {!sectionsLoading && filtered.length === 0 && (
                 <DataRow>
-                  <DataCell colSpan={5}><InfoBox msg="Uygun ders bulunamadı." /></DataCell>
+                  <DataCell colSpan={6}><InfoBox msg="Uygun ders bulunamadı." /></DataCell>
                 </DataRow>
               )}
               {filtered.map((sec: any) => {
@@ -323,6 +287,7 @@ export default function SimultaneousExamsTab() {
                     <DataCell style={{ color: C.textSub, fontSize: 12 }}>
                       {sec.year_level ? `${sec.year_level}. Sınıf` : "—"}
                     </DataCell>
+                    <DataCell style={{ fontSize: 12, color: C.textSub }}>{sec.academic_unit_name ?? "—"}</DataCell>
                     <DataCell>
                       <span style={{
                         fontSize: 10, padding: "3px 8px", borderRadius: 4,
@@ -340,6 +305,8 @@ export default function SimultaneousExamsTab() {
             </DataTable>
           </Card>
         </>
+      ) : (
+        <InfoBox msg="Dönem ve sınav takvimi seçmek için 'Ders Seçimi' sekmesine gidin." />
       )}
 
       {/* 4 — Slot picker modal */}

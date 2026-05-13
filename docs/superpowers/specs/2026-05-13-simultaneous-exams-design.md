@@ -121,8 +121,10 @@ Add `"simultaneous"` to the tab array in `exam-calendar/page.tsx`:
 **4. Slot picker modal**
 - Opens when "Eş Zamanlı Yap" is clicked
 - Renders the same date × time grid as the "Sınav Takvimi" tab
-- Blocked slots (`is_blocked=true`): greyed out, cursor `not-allowed`, not clickable
-- Clicking an available slot:
+- User selects only the **start time cell** — one click, one cell. No range selection.
+- Exam duration is not shown or selected here; Gurobi handles it internally using each course's `exam_duration_minutes` / weekly hours.
+- Blocked cells (`is_blocked=true`): greyed out, cursor `not-allowed`, not clickable. This covers both individually blocked slots and fully-blocked days (since blocking a day sets `is_blocked=true` on all its slots).
+- Clicking an available (unblocked) cell:
   1. POSTs to `/api/simultaneous-groups/` with `{ exam_period_id, slot_id, course_ids: [...] }`
   2. Closes modal
   3. Clears all checkboxes
