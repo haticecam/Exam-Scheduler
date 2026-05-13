@@ -372,6 +372,26 @@ class ExamDateSlot(models.Model):
     class Meta:
         db_table = 'exam_date_slot'
 
+
+class SimultaneousExamGroup(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    exam_period = models.ForeignKey(ExamPeriod, on_delete=models.CASCADE, related_name='simultaneous_groups')
+    slot = models.ForeignKey(ExamDateSlot, on_delete=models.SET_NULL, null=True, blank=True, related_name='simultaneous_groups')
+    label = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        db_table = 'simultaneous_exam_group'
+
+
+class SimultaneousExamGroupCourse(models.Model):
+    group = models.ForeignKey(SimultaneousExamGroup, on_delete=models.CASCADE, related_name='group_courses')
+    course = models.ForeignKey(CourseCatalog, on_delete=models.CASCADE, related_name='simultaneous_group_courses')
+
+    class Meta:
+        db_table = 'simultaneous_exam_group_course'
+        unique_together = ('group', 'course')
+
+
 class Exam(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     exam_period = models.ForeignKey(ExamPeriod, on_delete=models.CASCADE, related_name='exams')
