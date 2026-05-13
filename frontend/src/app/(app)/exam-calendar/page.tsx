@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import SimultaneousExamsTab from "./SimultaneousExamsTab";
 
 type ExamPeriod = {
   id: string;
@@ -63,7 +64,7 @@ const lStyle: React.CSSProperties = {
 };
 
 export default function ExamCalendarPage() {
-  const [activeTab, setActiveTab] = useState<"calendar" | "optimization">("calendar");
+  const [activeTab, setActiveTab] = useState<"calendar" | "optimization" | "simultaneous">("calendar");
 
   /* ── Shared: terms list ─────────────────────────────────────────────────── */
   const { data: termsData } = useFetch("/terms/");
@@ -354,7 +355,7 @@ export default function ExamCalendarPage() {
 
       {/* Tab switcher */}
       <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 24 }}>
-        {(["calendar", "optimization"] as const).map(tab => (
+        {(["calendar", "optimization", "simultaneous"] as const).map(tab => (
           <button
             key={tab}
             type="button"
@@ -372,7 +373,7 @@ export default function ExamCalendarPage() {
               marginBottom: -1,
             }}
           >
-            {tab === "calendar" ? "Sınav Takvimi" : "Ders Seçimi"}
+            {tab === "calendar" ? "Sınav Takvimi" : tab === "optimization" ? "Ders Seçimi" : "Eş zamanlı sınavlar"}
           </button>
         ))}
       </div>
@@ -801,6 +802,9 @@ export default function ExamCalendarPage() {
           </DataTable>
         </div>
       )}
+
+      {/* ── Simultaneous exams tab ────────────────────────────────────────── */}
+      {activeTab === "simultaneous" && <SimultaneousExamsTab />}
 
       {/* Edit ExamPeriod dialog */}
       <Dialog open={!!editPeriod} onOpenChange={open => { if (!open) setEditPeriod(null); }}>

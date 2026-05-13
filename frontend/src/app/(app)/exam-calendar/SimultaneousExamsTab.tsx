@@ -1,0 +1,458 @@
+"use client";
+import React, { useState, useCallback } from "react";
+import { C, mono } from "@/lib/colors";
+import { useFetch, api } from "@/lib/api";
+import { Card, SL, Spinner, ErrorBox, DataTable, DataRow, DataCell, InfoBox } from "@/components/ui";
+
+type SimGroup = {
+  id: string;
+  label: string;
+  slot: string | null;
+  slot_date: string | null;
+  slot_start_time: string | null;
+  slot_end_time: string | null;
+  courses: { course_id: string; code: string; name: string; year_level: number | null }[];
+};
+
+type ExamDateSlot = {
+  id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  is_blocked: boolean;
+};
+
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  background: "var(--surface)",
+  border: `1px solid ${C.border}`,
+  borderRadius: 8,
+  padding: "10px",
+  color: C.text,
+  fontSize: 13,
+  outline: "none",
+};
+
+const lStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 10,
+  color: C.textMuted,
+  marginBottom: 8,
+  ...mono,
+};
+
+export default function SimultaneousExamsTab() {
+  const { data: termsData } = useFetch("/terms/");
+  const terms: any[] = termsData?.results || termsData || [];
+
+  const [termId, setTermId] = useState("");
+  const [periodId, setPeriodId] = useState("");
+
+  const { data: periodsData } = useFetch(
+    termId ? `/exam-periods/?term_id=${termId}` : "",
+    [termId]
+  );
+  const periods: any[] = periodsData || [];
+
+  const { data: groupsData, refetch: refetchGroups } = useFetch(
+    periodId ? `/simultaneous-groups/?exam_period_id=${periodId}` : "",
+    [periodId]
+  );
+  const groups: SimGroup[] = groupsData?.results || groupsData || [];
+
+  const { data: slotsData } = useFetch(
+    periodId ? `/exam-periods/${periodId}/slots/` : "",
+    [periodId]
+  );
+  const slots: ExamDateSlot[] = slotsData || [];
+
+  const { data: sectionsData, loading: sectionsLoading } = useFetch(
+    termId && periodId
+      ? `/course-sections/?term_id=${termId}&exam_period_id=${periodId}`
+      : "",
+    [termId, periodId]
+  );
+  const sections: any[] = sectionsData?.results || sectionsData || [];
+
+  const { data: deptsData } = useFetch("/academic-units/");
+  const depts: any[] = deptsData?.results || deptsData || [];
+
+  const [filterDept, setFilterDept] = useState("Tümü");
+  const [filterYear, setFilterYear] = useState("Tümü");
+  const [filterType, setFilterType] = useState("Tümü");
+  const [search, setSearch] = useState("");
+
+  const filtered = sections.filter((s: any) => {
+    if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
+    if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
+    if (filterType !== "Tümü" && s.requirement !== filterType) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!s.course_name?.toLowerCase().includes(q) && !s.course_code?.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const toggleCheck = (courseId: string) =>
+    setChecked(prev => {
+      const next = new Set(prev);
+      next.has(courseId) ? next.delete(courseId) : next.add(courseId);
+      return next;
+    });
+
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const dates = Array.from(new Set(slots.map(s => s.date))).sort();
+  const times = Array.from(new Set(slots.map(s => s.start_time))).sort();
+  const slotMap: Record<string, ExamDateSlot> = {};
+  slots.forEach(s => { slotMap[`${s.date}|${s.start_time}`] = s; });
+
+  const weekdayLabel = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00");
+    return ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"][d.getDay()];
+  };
+
+  const pickSlot = useCallback(async (slot: ExamDateSlot) => {
+    if (slot.is_blocked || saving) return;
+    setSaving(true);
+    setSaveErr("");
+    try {
+      await api.post("/simultaneous-groups/", {
+        exam_period: periodId,
+        slot: slot.id,
+        course_ids: Array.from(checked),
+      });
+      setChecked(new Set());
+      setShowModal(false);
+      refetchGroups();
+    } catch (e: any) {
+      setSaveErr(e.data ? JSON.stringify(e.data) : e.message || "Kayıt başarısız.");
+    } finally {
+      setSaving(false);
+    }
+  }, [periodId, checked, saving, refetchGroups]);
+
+  const deleteGroup = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await api.delete(`/simultaneous-groups/${id}/`);
+      refetchGroups();
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* 1 — Selectors */}
+      <Card style={{ padding: "16px 24px" }}>
+        <div style={{ display: "flex", gap: 16 }}>
+          <div style={{ flex: 1, maxWidth: 320 }}>
+            <label style={lStyle}>DÖNEM</label>
+            <select value={termId} onChange={e => { setTermId(e.target.value); setPeriodId(""); }} style={selectStyle}>
+              <option value="">— Dönem seçin —</option>
+              {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 1, maxWidth: 320 }}>
+            <label style={lStyle}>SINAV TAKVİMİ</label>
+            <select
+              value={periodId}
+              onChange={e => setPeriodId(e.target.value)}
+              style={{ ...selectStyle, opacity: periods.length === 0 ? 0.5 : 1 }}
+              disabled={!termId || periods.length === 0}
+            >
+              <option value="">— Takvim seçin —</option>
+              {periods.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      {periodId && (
+        <>
+          {/* 2 — Existing groups */}
+          <Card style={{ padding: "16px 24px" }}>
+            <SL>EŞ ZAMANLI SINAV GRUPLARI</SL>
+            {groups.length === 0 ? (
+              <InfoBox msg="Henüz eş zamanlı sınav grubu oluşturulmadı." />
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {groups.map(g => (
+                  <div key={g.id} style={{
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 8,
+                    padding: "12px 16px",
+                    background: "var(--surface-container)",
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, ...mono, color: C.text }}>
+                        {g.label}
+                        {g.slot_date && (
+                          <span style={{ color: C.accent, marginLeft: 12, fontWeight: 400 }}>
+                            → {weekdayLabel(g.slot_date)} {g.slot_date.slice(5)} {g.slot_start_time?.slice(0, 5)}
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => deleteGroup(g.id)}
+                        disabled={deletingId === g.id}
+                        style={{
+                          background: "transparent",
+                          border: `1px solid ${C.red}`,
+                          borderRadius: 6,
+                          padding: "4px 12px",
+                          cursor: deletingId === g.id ? "not-allowed" : "pointer",
+                          color: C.red,
+                          fontSize: 12,
+                          ...mono,
+                          opacity: deletingId === g.id ? 0.5 : 1,
+                        }}
+                      >
+                        {deletingId === g.id ? "Siliniyor…" : "Sil"}
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {g.courses.map(c => (
+                        <span key={c.course_id} style={{
+                          fontSize: 11, padding: "3px 8px", borderRadius: 4,
+                          background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`,
+                          color: C.cyan, ...mono,
+                        }}>
+                          {c.code}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* 3 — Course list with checkboxes */}
+          <Card style={{ padding: "16px 24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <SL style={{ margin: 0 }}>DERS SEÇİMİ</SL>
+              <button
+                disabled={checked.size < 2}
+                onClick={() => { setSaveErr(""); setShowModal(true); }}
+                style={{
+                  background: checked.size >= 2 ? C.accent : C.border,
+                  color: checked.size >= 2 ? "#fff" : C.textMuted,
+                  border: "none", borderRadius: 8, padding: "10px 20px",
+                  cursor: checked.size >= 2 ? "pointer" : "not-allowed",
+                  fontSize: 13, fontWeight: 700, ...mono,
+                  transition: "background 140ms ease-out",
+                }}
+              >
+                Eş Zamanlı Yap ({checked.size} seçili)
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 150px 1fr", gap: 12, marginBottom: 16 }}>
+              <div>
+                <label style={lStyle}>BÖLÜM</label>
+                <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={selectStyle}>
+                  <option value="Tümü">Tümü</option>
+                  {depts.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lStyle}>YIL</label>
+                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={selectStyle}>
+                  <option value="Tümü">Tümü</option>
+                  {[1, 2, 3, 4].map(y => <option key={y} value={String(y)}>{y}. Sınıf</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={lStyle}>TÜR</label>
+                <select value={filterType} onChange={e => setFilterType(e.target.value)} style={selectStyle}>
+                  <option value="Tümü">Tümü</option>
+                  <option value="COMPULSORY">Zorunlu</option>
+                  <option value="ELECTIVE">Seçmeli</option>
+                </select>
+              </div>
+              <div>
+                <label style={lStyle}>ARAMA</label>
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Ders adı veya kodu..."
+                  style={selectStyle}
+                />
+              </div>
+            </div>
+
+            <DataTable headers={["", "Ders Kodu", "Ders Adı", "Sınıf", "Tür"]}>
+              {sectionsLoading && (
+                <DataRow>
+                  <DataCell colSpan={5} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell>
+                </DataRow>
+              )}
+              {!sectionsLoading && filtered.length === 0 && (
+                <DataRow>
+                  <DataCell colSpan={5}><InfoBox msg="Uygun ders bulunamadı." /></DataCell>
+                </DataRow>
+              )}
+              {filtered.map((sec: any) => {
+                const courseId = String(sec.course_id ?? sec.id);
+                const isChecked = checked.has(courseId);
+                return (
+                  <tr
+                    key={sec.id}
+                    style={{ borderBottom: "1px solid color-mix(in srgb, var(--outline-variant) 40%, transparent)", transition: "background 140ms ease-out", cursor: "pointer" }}
+                    onClick={() => toggleCheck(courseId)}
+                    onMouseEnter={e => { (e.currentTarget as HTMLTableRowElement).style.background = "var(--surface-container-high)"; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLTableRowElement).style.background = ""; }}
+                  >
+                    <DataCell style={{ width: 36 }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleCheck(courseId)}
+                        onClick={e => e.stopPropagation()}
+                      />
+                    </DataCell>
+                    <DataCell style={{ color: C.cyan, ...mono, fontWeight: 600 }}>{sec.course_code}</DataCell>
+                    <DataCell>{sec.course_name}</DataCell>
+                    <DataCell style={{ color: C.textSub, fontSize: 12 }}>
+                      {sec.year_level ? `${sec.year_level}. Sınıf` : "—"}
+                    </DataCell>
+                    <DataCell>
+                      <span style={{
+                        fontSize: 10, padding: "3px 8px", borderRadius: 4,
+                        background: sec.requirement === "COMPULSORY"
+                          ? `color-mix(in srgb, ${C.green} 14%, transparent)`
+                          : `color-mix(in srgb, ${C.cyan} 12%, transparent)`,
+                        color: sec.requirement === "COMPULSORY" ? C.green : C.accent,
+                      }}>
+                        {sec.requirement === "COMPULSORY" ? "ZORUNLU" : "SEÇMELİ"}
+                      </span>
+                    </DataCell>
+                  </tr>
+                );
+              })}
+            </DataTable>
+          </Card>
+        </>
+      )}
+
+      {/* 4 — Slot picker modal */}
+      {showModal && (
+        <div style={{
+          position: "fixed", inset: 0,
+          background: "rgba(0,0,0,0.5)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 100,
+        }}>
+          <div style={{
+            background: "var(--surface)",
+            borderRadius: 12,
+            padding: 24,
+            maxWidth: "90vw",
+            maxHeight: "80vh",
+            overflow: "auto",
+            minWidth: 420,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, ...mono, color: C.text }}>
+                Başlangıç Saati Seçin
+              </h3>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{ background: "transparent", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 20, lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+            <p style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>
+              {checked.size} ders seçili. Eş zamanlı sınavın başlayacağı saate tıklayın.
+            </p>
+
+            {saveErr && <div style={{ marginBottom: 12 }}><ErrorBox msg={saveErr} /></div>}
+
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
+                <thead>
+                  <tr>
+                    <th style={{
+                      position: "sticky", left: 0, background: "var(--surface)", zIndex: 2,
+                      padding: "8px 14px", borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+                      ...mono, fontSize: 10, color: C.textMuted, textAlign: "left", fontWeight: 600,
+                    }}>
+                      SAAT
+                    </th>
+                    {dates.map(date => (
+                      <th key={date} style={{
+                        padding: "8px 10px",
+                        borderBottom: `1px solid ${C.border}`,
+                        borderRight: `1px solid ${C.border}`,
+                        minWidth: 90, textAlign: "center",
+                        background: "var(--surface)",
+                      }}>
+                        <div style={{ ...mono, fontSize: 11, color: C.text, fontWeight: 700 }}>{weekdayLabel(date)}</div>
+                        <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>{date.slice(5)}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {times.map((time, rowIdx) => (
+                    <tr key={time} style={{ background: rowIdx % 2 === 0 ? "transparent" : "color-mix(in srgb, var(--surface) 50%, transparent)" }}>
+                      <td style={{
+                        position: "sticky", left: 0, background: "var(--surface)", zIndex: 1,
+                        padding: "6px 14px", borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+                        ...mono, fontSize: 11, color: C.textMuted, whiteSpace: "nowrap",
+                      }}>
+                        {time}
+                      </td>
+                      {dates.map(date => {
+                        const slot = slotMap[`${date}|${time}`];
+                        if (!slot) return (
+                          <td key={date} style={{ borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }} />
+                        );
+                        const blocked = slot.is_blocked;
+                        return (
+                          <td
+                            key={date}
+                            onClick={() => !blocked && !saving && pickSlot(slot)}
+                            title={blocked ? "Engellenmiş — seçilemez" : "Tıkla: bu saate ata"}
+                            style={{
+                              borderBottom: `1px solid ${C.border}`,
+                              borderRight: `1px solid ${C.border}`,
+                              background: blocked
+                                ? `color-mix(in srgb, ${C.red} 16%, transparent)`
+                                : `color-mix(in srgb, ${C.green} 12%, transparent)`,
+                              cursor: blocked ? "not-allowed" : saving ? "wait" : "pointer",
+                              padding: "8px 10px",
+                              textAlign: "center",
+                              transition: "background 120ms ease-out",
+                              userSelect: "none",
+                              opacity: saving ? 0.6 : 1,
+                            }}
+                          >
+                            <span style={{ fontSize: 14 }}>{blocked ? "✕" : "✓"}</span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {saving && (
+              <div style={{ marginTop: 12, textAlign: "center" }}>
+                <Spinner size={16} />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
