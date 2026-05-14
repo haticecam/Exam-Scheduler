@@ -105,6 +105,16 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     return ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"][d.getDay()];
   };
 
+  const weekdayLabelLong = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00");
+    return ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"][d.getDay()];
+  };
+
+  const formatDdMm = (dateStr: string) => {
+    const [, mm, dd] = dateStr.split("-");
+    return `${dd}/${mm}`;
+  };
+
   const pickSlot = useCallback(async (slot: ExamDateSlot) => {
     if (slot.is_blocked || saving) return;
     setSaving(true);
@@ -159,7 +169,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                         {g.label}
                         {g.slot_date && (
                           <span style={{ color: C.accent, marginLeft: 12, fontWeight: 400 }}>
-                            → {weekdayLabel(g.slot_date)} {g.slot_date.slice(5)} {g.slot_start_time?.slice(0, 5)}
+                            → {weekdayLabelLong(g.slot_date)} {formatDdMm(g.slot_date)} {g.slot_start_time?.slice(0, 5)}
                           </span>
                         )}
                       </span>
@@ -363,7 +373,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                         background: "var(--surface)",
                       }}>
                         <div style={{ ...mono, fontSize: 11, color: C.text, fontWeight: 700 }}>{weekdayLabel(date)}</div>
-                        <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>{date.slice(5)}</div>
+                        <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>{formatDdMm(date)}</div>
                       </th>
                     ))}
                   </tr>
