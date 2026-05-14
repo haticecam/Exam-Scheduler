@@ -118,6 +118,7 @@ def run_optimizer_task(self, solution_id: str):
             'time_limit': params.get('time_limit', None),
             'mip_gap': params.get('mip_gap', 0.10),
             'no_back_to_back': params.get('no_back_to_back', False),
+            'no_back_to_back_depts': params.get('no_back_to_back_depts', None),
             'exam_days': params.get('exam_days', 5),
             'slots_per_day': params.get('slots_per_day', 10),
             'start_hour': params.get('start_hour', 8),
