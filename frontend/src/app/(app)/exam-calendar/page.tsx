@@ -376,7 +376,11 @@ export default function ExamCalendarPage() {
         Sınav Takvimi
       </h2>
       <p style={{ color: C.textMuted, fontSize: 14, marginBottom: 20 }}>
-        Sınav haftasını seçin, zaman dilimlerini ve engellenen günleri yönetin.
+        {activeTab === "calendar"
+          ? "Sınav haftasını seçin, zaman dilimlerini ve engellenen günleri yönetin."
+          : activeTab === "optimization"
+          ? "Sınav takvimine dahil edilecek dersleri seçin ve ders bilgilerini düzenleyin."
+          : "Aynı zaman diliminde yapılacak ders gruplarını tanımlayın ve yönetin."}
       </p>
 
       {/* Tab switcher */}
