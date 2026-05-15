@@ -13,6 +13,7 @@ const IIS_LABELS: Record<string, string> = {
 };
 
 type LLMChange = { code: string; value: unknown; reason: string };
+type AppliedChange = LLMChange & { checked: boolean };
 type LLMResult = {
   success: boolean;
   is_scheduling_request?: boolean;
@@ -66,7 +67,11 @@ export default function OptimizerPage() {
   const [llmErr, setLlmErr] = useState("");
   const [diagSt, setDiagSt] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [diagResult, setDiagResult] = useState<DiagnoseResult | null>(null);
-  const [pendingProposedParams, setPendingProposedParams] = useState<Record<string, unknown> | null>(null);
+  const [appliedChanges, setAppliedChanges] = useState<AppliedChange[] | null>(null);
+  const [pendingKwargs, setPendingKwargs] = useState<{
+    optimizer_kwargs: Record<string, unknown>;
+    proposed_params: Record<string, unknown> | null;
+  } | null>(null);
 
   const stopPoll = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
@@ -98,10 +103,39 @@ export default function OptimizerPage() {
     if (!params.term_id) { setSubErr("Lütfen bir dönem seçin."); return; }
     setRunSt("submitting"); setSubErr(""); setIis([]); setPollSnap(null);
     try {
-      const { name, ...rest } = params;
+      // Build extra params from checklist (only checked items)
+      let extraParams: Partial<typeof params> = {};
+      let resolvedProposedParams: Record<string, unknown> | null = null;
+
+      if (appliedChanges && pendingKwargs) {
+        const checkedCodes = new Set(appliedChanges.filter(c => c.checked).map(c => c.code));
+        const kw = pendingKwargs.optimizer_kwargs as any;
+
+        if (checkedCodes.has("PARAM_EXAM_DAYS")           && kw.exam_days           !== undefined) extraParams.exam_days           = kw.exam_days;
+        if (checkedCodes.has("PARAM_SLOTS_PER_DAY")       && kw.slots_per_day       !== undefined) extraParams.slots_per_day       = kw.slots_per_day;
+        if (checkedCodes.has("PARAM_START_HOUR")          && kw.start_hour          !== undefined) extraParams.start_hour          = kw.start_hour;
+        if (checkedCodes.has("PARAM_HARD_THRESHOLD")      && kw.hard_threshold      !== undefined) extraParams.hard_threshold      = kw.hard_threshold;
+        if (checkedCodes.has("PARAM_TIME_LIMIT")          && kw.time_limit          !== undefined) extraParams.time_limit          = kw.time_limit;
+        if (checkedCodes.has("PARAM_MIP_GAP")             && kw.mip_gap             !== undefined) extraParams.mip_gap             = kw.mip_gap;
+        if (checkedCodes.has("PARAM_NO_BACK_TO_BACK")     && kw.no_back_to_back     !== undefined) extraParams.no_back_to_back     = kw.no_back_to_back;
+        if (checkedCodes.has("PARAM_YEAR_ORDER_WEIGHT")   && kw.year_order_weight   !== undefined) extraParams.year_order_weight   = kw.year_order_weight;
+        if (checkedCodes.has("PARAM_YEAR_ORDER_SEQUENCE") && kw.year_order_sequence !== undefined) extraParams.year_order_sequence = kw.year_order_sequence;
+        if (checkedCodes.has("PARAM_YEAR_ORDER_WEIGHTS")  && kw.year_order_weights  !== undefined) extraParams.year_order_weights  = kw.year_order_weights;
+
+        const rawProposed = pendingKwargs.proposed_params ?? {};
+        const filteredProposed = Object.fromEntries(
+          Object.entries(rawProposed).filter(([key]) => checkedCodes.has(key))
+        );
+        resolvedProposedParams = Object.keys(filteredProposed).length > 0 ? filteredProposed : null;
+      }
+
+      setAppliedChanges(null);
+      setPendingKwargs(null);
+
+      const { name, ...rest } = { ...params, ...extraParams };
       const payload = name ? { ...rest, name } : rest;
       const finalPayload = {
-        ...(pendingProposedParams ? { ...payload, proposed_params: pendingProposedParams } : payload),
+        ...(resolvedProposedParams ? { ...payload, proposed_params: resolvedProposedParams } : payload),
         ...(examPeriodId ? { exam_period_id: examPeriodId } : {}),
       };
       const res = await api.post("/optimize/run/", finalPayload);
@@ -122,6 +156,7 @@ export default function OptimizerPage() {
   const reset = () => {
     stopPoll(); setRunSt("idle"); setSolId(null); setPollSnap(null);
     setIis([]); setSubErr(""); setDiagSt("idle"); setDiagResult(null);
+    setAppliedChanges(null); setPendingKwargs(null);
   };
 
   // LLM: configure
@@ -138,25 +173,17 @@ export default function OptimizerPage() {
     }
   };
 
-  // LLM: apply proposed params to the form
-  const applyToForm = () => {
+  // LLM: stage changes into checklist (nothing written to params yet)
+  const stageChanges = () => {
     if (!llmResult?.optimizer_kwargs) return;
-    setPendingProposedParams(llmResult.proposed_params ?? null);
-    setExamPeriodId("");  // LLM config uses manual params
-    const kw = llmResult.optimizer_kwargs as any;
-    setParams(p => ({
-      ...p,
-      ...(kw.hard_threshold !== undefined  && { hard_threshold: kw.hard_threshold }),
-      ...(kw.exam_days      !== undefined  && { exam_days: kw.exam_days }),
-      ...(kw.slots_per_day  !== undefined  && { slots_per_day: kw.slots_per_day }),
-      ...(kw.start_hour     !== undefined  && { start_hour: kw.start_hour }),
-      ...(kw.time_limit     !== undefined  && { time_limit: kw.time_limit }),
-      ...(kw.mip_gap        !== undefined  && { mip_gap: kw.mip_gap }),
-      ...(kw.no_back_to_back  !== undefined && { no_back_to_back: kw.no_back_to_back }),
-      ...(kw.year_order_weight  !== undefined && { year_order_weight: kw.year_order_weight }),
-      ...(kw.year_order_sequence !== undefined && { year_order_sequence: kw.year_order_sequence }),
-      ...(kw.year_order_weights  !== undefined && { year_order_weights: kw.year_order_weights }),
-    }));
+    setAppliedChanges(llmResult.changes.map(ch => ({ ...ch, checked: true })));
+    setPendingKwargs({
+      optimizer_kwargs: llmResult.optimizer_kwargs,
+      proposed_params: llmResult.proposed_params ?? null,
+    });
+    setExamPeriodId("");
+    setLlmSt("idle");
+    setLlmResult(null);
   };
 
 
@@ -351,7 +378,7 @@ export default function OptimizerPage() {
             </div>
             <button
               type="button"
-              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
+              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
               style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", ...mono, fontSize: 11, flexShrink: 0 }}
             >
               Kapat
@@ -401,14 +428,14 @@ export default function OptimizerPage() {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button
                 type="button"
-                onClick={applyToForm}
+                onClick={stageChanges}
                 style={{ background: "var(--surface)", color: C.cyan, border: `1px solid color-mix(in srgb, ${C.cyan} 40%, transparent)`, borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 600 }}
               >
                 Forma Uygula
               </button>
               <button
                 type="button"
-                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
+                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
                 style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}
               >
                 Kapat
