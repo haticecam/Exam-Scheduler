@@ -620,9 +620,12 @@ class OptimizerViewSet(viewsets.ViewSet):
 
         proposed_params = data.get('proposed_params') or {}
         weight_config = None
+        llm_no_back_to_back_depts = None
         if proposed_params:
-            from .services.constraint_library import build_weight_config
+            from .services.constraint_library import build_weight_config, build_optimizer_kwargs
             weight_config = build_weight_config(proposed_params)
+            llm_optimizer_kw = build_optimizer_kwargs(proposed_params)
+            llm_no_back_to_back_depts = llm_optimizer_kw.get('no_back_to_back_depts') or None
 
         solution = GeneratedSolution.objects.create(
             term_id=term_id,
@@ -632,6 +635,7 @@ class OptimizerViewSet(viewsets.ViewSet):
                 'time_limit': data['time_limit'],
                 'mip_gap': data['mip_gap'],
                 'no_back_to_back': data['no_back_to_back'],
+                'no_back_to_back_depts': llm_no_back_to_back_depts,
                 'exam_days': data['exam_days'],
                 'slots_per_day': data['slots_per_day'],
                 'start_hour': data['start_hour'],
@@ -897,10 +901,16 @@ class LLMConfigureView(APIView):
         except ValueError as e:
             return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        from .models import AcademicUnit
+        department_names = list(
+            AcademicUnit.objects.values_list('name', flat=True).order_by('name')
+        )
+
         result = mapper.map_preferences(
             user_input=user_message,
             current_params=current_params,
             conversation_history=conversation_history,
+            department_names=department_names or None,
         )
 
         if not result["success"]:
