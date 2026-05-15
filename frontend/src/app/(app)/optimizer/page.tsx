@@ -73,6 +73,14 @@ export default function OptimizerPage() {
     proposed_params: Record<string, unknown> | null;
   } | null>(null);
 
+  const CALENDAR_OVERRIDDEN_CODES = new Set([
+    "PARAM_EXAM_DAYS",
+    "PARAM_SLOTS_PER_DAY",
+    "PARAM_START_HOUR",
+  ]);
+  const isCalendarOverridden = (code: string) =>
+    Boolean(examPeriodId) && CALENDAR_OVERRIDDEN_CODES.has(code);
+
   const stopPoll = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
   const startPolling = useCallback((id: string) => {
@@ -108,7 +116,11 @@ export default function OptimizerPage() {
       let resolvedProposedParams: Record<string, unknown> | null = null;
 
       if (appliedChanges && pendingKwargs) {
-        const checkedCodes = new Set(appliedChanges.filter(c => c.checked).map(c => c.code));
+        const checkedCodes = new Set(
+          appliedChanges
+            .filter(c => c.checked && !isCalendarOverridden(c.code))
+            .map(c => c.code)
+        );
         const kw = pendingKwargs.optimizer_kwargs as any;
 
         if (checkedCodes.has("PARAM_EXAM_DAYS")           && kw.exam_days           !== undefined) extraParams.exam_days           = kw.exam_days;
@@ -615,7 +627,7 @@ export default function OptimizerPage() {
             <span style={{ fontSize: 10, color: C.cyan, ...mono, letterSpacing: "0.08em", fontWeight: 700 }}>UYGULANACAK DEĞİŞİKLİKLER</span>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <span style={{ fontSize: 11, color: C.textMuted, ...mono }}>
-                {appliedChanges.filter(c => c.checked).length}/{appliedChanges.length} seçili
+                {appliedChanges.filter(c => c.checked && !isCalendarOverridden(c.code)).length}/{appliedChanges.filter(c => !isCalendarOverridden(c.code)).length} seçili
               </span>
               <button
                 type="button"
@@ -627,43 +639,52 @@ export default function OptimizerPage() {
             </div>
           </div>
           {/* Rows */}
-          {appliedChanges.map((ch, i) => (
+          {appliedChanges.map((ch, i) => {
+            const ignored = isCalendarOverridden(ch.code);
+            return (
             <div
               key={i}
-              onClick={() => setAppliedChanges(prev => prev!.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))}
+              onClick={ignored ? undefined : () => setAppliedChanges(prev => prev!.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))}
               style={{
                 display: "flex",
                 alignItems: "flex-start",
                 gap: 14,
                 padding: "14px 16px",
-                borderLeft: `4px solid ${ch.checked ? C.cyan : C.border}`,
+                borderLeft: `4px solid ${ignored ? C.border : (ch.checked ? C.cyan : C.border)}`,
                 borderBottom: i < appliedChanges.length - 1 ? `1px solid ${C.border}` : "none",
                 background: "var(--surface)",
-                opacity: ch.checked ? 1 : 0.4,
-                cursor: "pointer",
+                opacity: ignored ? 0.5 : (ch.checked ? 1 : 0.4),
+                cursor: ignored ? "not-allowed" : "pointer",
                 transition: "opacity 140ms ease-out, border-color 140ms ease-out",
               }}
             >
               <input
                 type="checkbox"
-                checked={ch.checked}
+                checked={ignored ? false : ch.checked}
+                disabled={ignored}
                 onChange={() => setAppliedChanges(prev => prev!.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))}
                 onClick={e => e.stopPropagation()}
-                style={{ marginTop: 3, accentColor: C.cyan, flexShrink: 0, width: 16, height: 16, cursor: "pointer" }}
+                style={{ marginTop: 3, accentColor: C.cyan, flexShrink: 0, width: 16, height: 16, cursor: ignored ? "not-allowed" : "pointer" }}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
                   <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>
                     {ch.code}
                   </span>
-                  <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>
+                  <span style={{ fontSize: 12, color: C.text, fontWeight: 600, textDecoration: ignored ? "line-through" : "none" }}>
                     → {typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}
                   </span>
+                  {ignored && (
+                    <span style={{ ...mono, fontSize: 10, color: C.amber, background: `color-mix(in srgb, ${C.amber} 12%, transparent)`, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
+                      Takvimden alınıyor — yok sayılır
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>{ch.reason}</div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
