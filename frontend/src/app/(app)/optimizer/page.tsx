@@ -607,6 +607,66 @@ export default function OptimizerPage() {
         </Card>
       </div>
 
+      {/* ── LLM changes checklist ─────────────────────────────── */}
+      {appliedChanges && (
+        <div style={{ marginTop: 20, border: `1px solid color-mix(in srgb, ${C.cyan} 30%, transparent)`, borderRadius: 8, overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: C.cyanSoft, borderBottom: `1px solid color-mix(in srgb, ${C.cyan} 20%, transparent)` }}>
+            <span style={{ fontSize: 10, color: C.cyan, ...mono, letterSpacing: "0.08em", fontWeight: 700 }}>UYGULANACAK DEĞİŞİKLİKLER</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 11, color: C.textMuted, ...mono }}>
+                {appliedChanges.filter(c => c.checked).length}/{appliedChanges.length} seçili
+              </span>
+              <button
+                type="button"
+                onClick={() => { setAppliedChanges(null); setPendingKwargs(null); }}
+                style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", ...mono, fontSize: 11 }}
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+          {/* Rows */}
+          {appliedChanges.map((ch, i) => (
+            <div
+              key={i}
+              onClick={() => setAppliedChanges(prev => prev!.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 14,
+                padding: "14px 16px",
+                borderLeft: `4px solid ${ch.checked ? C.cyan : C.border}`,
+                borderBottom: i < appliedChanges.length - 1 ? `1px solid ${C.border}` : "none",
+                background: "var(--surface)",
+                opacity: ch.checked ? 1 : 0.4,
+                cursor: "pointer",
+                transition: "opacity 140ms ease-out, border-color 140ms ease-out",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={ch.checked}
+                onChange={() => setAppliedChanges(prev => prev!.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))}
+                onClick={e => e.stopPropagation()}
+                style={{ marginTop: 3, accentColor: C.cyan, flexShrink: 0, width: 16, height: 16, cursor: "pointer" }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>
+                    {ch.code}
+                  </span>
+                  <span style={{ fontSize: 12, color: C.text, fontWeight: 600 }}>
+                    → {typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>{ch.reason}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div style={{ marginTop: 20, display: "flex", gap: 12, alignItems: "center" }}>
         <button
           type="button"
