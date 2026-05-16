@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import SimultaneousExamGroup, SimultaneousExamGroupCourse, CourseCatalog
+from core.services.exam_duration import group_exam_duration_minutes
 
 
 class SimultaneousExamGroupCourseSerializer(serializers.ModelSerializer):
@@ -37,8 +38,6 @@ class SimultaneousExamGroupSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'label']
 
     def validate(self, attrs):
-        from core.services.exam_duration import group_exam_duration_minutes
-
         period = attrs.get('exam_period')
         slot = attrs.get('slot')
         course_ids = attrs.get('course_ids') or []
@@ -65,6 +64,7 @@ class SimultaneousExamGroupSerializer(serializers.ModelSerializer):
             SimultaneousExamGroup.objects
             .filter(exam_period=period, slot__date=slot.date)
             .exclude(slot__isnull=True)
+            .exclude(pk=self.instance.pk if self.instance else None)
             .prefetch_related('group_courses__course', 'slot')
         )
 

@@ -34,6 +34,12 @@ type DiagnoseResult = {
   error?: string;
 };
 
+const CALENDAR_OVERRIDDEN_CODES = new Set([
+  "PARAM_EXAM_DAYS",
+  "PARAM_SLOTS_PER_DAY",
+  "PARAM_START_HOUR",
+]);
+
 export default function OptimizerPage() {
   const router = useRouter();
   const { data: termsData } = useFetch("/terms/");
@@ -73,13 +79,10 @@ export default function OptimizerPage() {
     proposed_params: Record<string, unknown> | null;
   } | null>(null);
 
-  const CALENDAR_OVERRIDDEN_CODES = new Set([
-    "PARAM_EXAM_DAYS",
-    "PARAM_SLOTS_PER_DAY",
-    "PARAM_START_HOUR",
-  ]);
-  const isCalendarOverridden = (code: string) =>
-    Boolean(examPeriodId) && CALENDAR_OVERRIDDEN_CODES.has(code);
+  const isCalendarOverridden = useCallback(
+    (code: string) => Boolean(examPeriodId) && CALENDAR_OVERRIDDEN_CODES.has(code),
+    [examPeriodId],
+  );
 
   const stopPoll = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
