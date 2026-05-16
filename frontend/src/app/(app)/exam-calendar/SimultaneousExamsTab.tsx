@@ -166,6 +166,64 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     return out;
   }, [groups, slotDurationMinutes, sessionMode]);
 
+  // Per-cell merge info: consecutive conflict cells with the same group label
+  // are collapsed into one rowSpan'd start cell. rowSpan === 0 means "skip
+  // rendering this cell, it's covered by the merged start above".
+  type ConflictCellInfo = { conflict: PinnedWindow; rowSpan: number };
+  const conflictCells: Map<string, ConflictCellInfo> = React.useMemo(() => {
+    const result = new Map<string, ConflictCellInfo>();
+    if (newGroupDurationMinutes <= 0) return result;
+
+    for (const date of dates) {
+      const windows = pinnedWindowsByDate[date] || [];
+      let runStartKey: string | null = null;
+      let runLength = 0;
+      let runLabel: string | null = null;
+
+      const closeRun = () => {
+        if (runStartKey) {
+          const startInfo = result.get(runStartKey);
+          if (startInfo) startInfo.rowSpan = runLength;
+        }
+        runStartKey = null;
+        runLength = 0;
+        runLabel = null;
+      };
+
+      for (const time of times) {
+        const slot = slotMap[`${date}|${time}`];
+        const key = `${date}|${time}`;
+        let conflict: PinnedWindow | null = null;
+        if (slot && !slot.is_blocked) {
+          const sStart = timeStringToMinutes(slot.start_time);
+          const sEnd = sStart + newGroupDurationMinutes;
+          for (const w of windows) {
+            if (intervalsOverlap(sStart, sEnd, w.startMin, w.endMin)) {
+              conflict = w;
+              break;
+            }
+          }
+        }
+
+        if (conflict && conflict.groupLabel === runLabel) {
+          // Continuation cell: increment run, mark for skip-render.
+          runLength += 1;
+          result.set(key, { conflict, rowSpan: 0 });
+        } else {
+          closeRun();
+          if (conflict) {
+            runStartKey = key;
+            runLength = 1;
+            runLabel = conflict.groupLabel;
+            result.set(key, { conflict, rowSpan: 1 });
+          }
+        }
+      }
+      closeRun();
+    }
+    return result;
+  }, [dates, times, slotMap, pinnedWindowsByDate, newGroupDurationMinutes]);
+
   const weekdayLabel = (dateStr: string) => {
     const d = new Date(dateStr + "T00:00:00");
     return ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"][d.getDay()];
@@ -468,20 +526,13 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                           <td key={date} style={{ borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }} />
                         );
                         const blocked = slot.is_blocked;
+                        const cellInfo = conflictCells.get(`${date}|${time}`);
+                        // Continuation of a merged conflict run — fully covered by the
+                        // rowSpan'd start cell above; do not emit a <td>.
+                        if (cellInfo && cellInfo.rowSpan === 0) return null;
 
-                        let conflict: PinnedWindow | null = null;
-                        if (!blocked && newGroupDurationMinutes > 0) {
-                          const sStart = timeStringToMinutes(slot.start_time);
-                          const sEnd = sStart + newGroupDurationMinutes;
-                          const windows = pinnedWindowsByDate[date] || [];
-                          for (const w of windows) {
-                            if (intervalsOverlap(sStart, sEnd, w.startMin, w.endMin)) {
-                              conflict = w;
-                              break;
-                            }
-                          }
-                        }
-
+                        const conflict = cellInfo?.conflict ?? null;
+                        const rowSpan = cellInfo?.rowSpan ?? 1;
                         const isLocked = blocked || !!conflict;
                         const bg = blocked
                           ? `color-mix(in srgb, ${C.red} 16%, transparent)`
@@ -497,6 +548,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                         return (
                           <td
                             key={date}
+                            rowSpan={rowSpan}
                             onClick={() => !isLocked && !saving && pickSlot(slot)}
                             title={tooltip}
                             style={{
@@ -506,6 +558,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                               cursor: isLocked ? "not-allowed" : saving ? "wait" : "pointer",
                               padding: conflict ? "4px 6px" : "8px 10px",
                               textAlign: "center",
+                              verticalAlign: "middle",
                               transition: "background 120ms ease-out",
                               userSelect: "none",
                               opacity: saving ? 0.6 : 1,
@@ -515,7 +568,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                             {blocked ? (
                               <span style={{ fontSize: 14 }}>✕</span>
                             ) : conflict ? (
-                              <div style={{ ...mono, fontSize: 9, lineHeight: 1.15, color: C.red, fontWeight: 600 }}>
+                              <div style={{ ...mono, fontSize: 10, lineHeight: 1.25, color: C.red, fontWeight: 600 }}>
                                 {conflict.codes.slice(0, 3).map(code => (
                                   <div key={code} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                     {code}
