@@ -160,7 +160,8 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
         groupLabel: g.label,
         startMin: start,
         endMin: start + dur,
-        codes: g.courses.map(c => c.code),
+        // Dedupe: same course code can appear once per department in the group.
+        codes: Array.from(new Set(g.courses.map(c => c.code))),
       });
     }
     return out;
