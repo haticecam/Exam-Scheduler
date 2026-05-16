@@ -96,6 +96,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const [search, setSearch] = useState("");
 
   const filtered = sections.filter((s: any) => {
+    if (s.excluded_from_optimization) return false;
     if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
     if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
     if (filterType !== "Tümü" && s.requirement !== filterType) return false;
