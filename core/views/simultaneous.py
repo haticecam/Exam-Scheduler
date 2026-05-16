@@ -1,6 +1,7 @@
 from rest_framework import viewsets
-from .models import SimultaneousExamGroup
-from .serializers_simultaneous import SimultaneousExamGroupSerializer
+
+from ..models import SimultaneousExamGroup
+from ..serializers import SimultaneousExamGroupSerializer
 
 
 class SimultaneousExamGroupViewSet(viewsets.ModelViewSet):

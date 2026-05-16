@@ -1,13 +1,12 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    SystemStatusView, OrganizationViewSet, CourseCatalogViewSet, AcademicUnitViewSet,
-    SimulateStudentsView, TermViewSet, StudentViewSet, OptimizerViewSet, DashboardStatsView,
-    ResourceViewSet, LLMConfigureView, LLMConfirmView, LLMDiagnoseView, LLMLibraryView,
-    CourseSectionViewSet,
+    AcademicUnitViewSet, CourseCatalogViewSet, CourseSectionViewSet, DashboardStatsView,
+    ExamDateSlotViewSet, ExamPeriodViewSet, LLMConfirmView, LLMConfigureView,
+    LLMDiagnoseView, LLMLibraryView, OptimizerViewSet, OrganizationViewSet,
+    ResourceViewSet, SimulateStudentsView, SimultaneousExamGroupViewSet,
+    StudentViewSet, SystemStatusView, TermViewSet,
 )
-from .views_exam import ExamPeriodViewSet, ExamDateSlotViewSet
-from .views_simultaneous import SimultaneousExamGroupViewSet
 
 router = DefaultRouter()
 router.register(r'organizations', OrganizationViewSet, basename='organization')

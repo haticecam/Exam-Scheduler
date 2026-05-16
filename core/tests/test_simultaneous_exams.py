@@ -1,7 +1,7 @@
 import inspect
 from django.test import TestCase, Client
 from core.models import SimultaneousExamGroup, SimultaneousExamGroupCourse
-from core.serializers_simultaneous import SimultaneousExamGroupSerializer
+from core.serializers import SimultaneousExamGroupSerializer
 from core.services.optimizer import OptimizerService
 
 

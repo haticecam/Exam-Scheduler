@@ -198,22 +198,6 @@ export default function CoursesPage() {
               onSuccess={refetch}
             />
           </Card>
-
-          <Card style={{ padding: 24 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <SL style={{ margin: 0 }}>Kontenjan Tahmini Güncelleme</SL>
-              <ModeBadge label="Demo" color="var(--status-warning)" />
-            </div>
-            <p style={{ color: C.textMuted, fontSize: 12, margin: "0 0 16px", lineHeight: 1.6 }}>
-              Yalnızca gerçek öğrenci kaydı bulunmayan ortamlarda kullanılır. Geçmiş yıl verilerinden bölüm kontenjan tahminleri üretir. Gerçek öğrenci kayıtları yüklendiğinde optimizasyon bu tahminlere ihtiyaç duymaz.
-            </p>
-            <CSVUploader
-              title="Tahmini Bölüm Kontenjanları (Geçmiş Yıl - CSV)"
-              endpoint="/academic-units/update-estimates/"
-              templateCols={["Ders Kodu", "Ders Adı", "Sınıf", "Kon", "Program"]}
-              onSuccess={refetch}
-            />
-          </Card>
         </div>
       </div>
 
