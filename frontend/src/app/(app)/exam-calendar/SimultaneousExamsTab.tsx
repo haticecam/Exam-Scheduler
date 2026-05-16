@@ -3,6 +3,12 @@ import React, { useState, useCallback } from "react";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
 import { Card, SL, Spinner, ErrorBox, DataTable, DataRow, DataCell, InfoBox } from "@/components/ui";
+import {
+  groupExamDurationMinutes,
+  intervalsOverlap,
+  timeStringToMinutes,
+  type DurationInputs,
+} from "@/lib/examDuration";
 
 type SimGroup = {
   id: string;
@@ -11,7 +17,14 @@ type SimGroup = {
   slot_date: string | null;
   slot_start_time: string | null;
   slot_end_time: string | null;
-  courses: { course_id: string; code: string; name: string; year_level: number | null }[];
+  courses: {
+    course_id: string;
+    code: string;
+    name: string;
+    year_level: number | null;
+    exam_duration_minutes: number | null;
+    weekly_hours_lecture: number | null;
+  }[];
 };
 
 type ExamDateSlot = {
@@ -54,6 +67,17 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     [periodId]
   );
   const slots: ExamDateSlot[] = slotsData || [];
+
+  const { data: periodData } = useFetch(
+    periodId ? `/exam-periods/${periodId}/` : "",
+    [periodId]
+  );
+  const sessionMode: boolean = (periodData?.config?.slot_mode === "session");
+  const slotDurationMinutes: number = (() => {
+    if (slots.length === 0) return 30;
+    const s = slots[0];
+    return timeStringToMinutes(s.end_time) - timeStringToMinutes(s.start_time);
+  })();
 
   const { data: sectionsData, loading: sectionsLoading } = useFetch(
     termId && periodId
@@ -100,6 +124,48 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const slotMap: Record<string, ExamDateSlot> = {};
   slots.forEach(s => { slotMap[`${s.date}|${s.start_time}`] = s; });
 
+  const newGroupCourses: DurationInputs[] = React.useMemo(() => {
+    return sections
+      .filter((s: any) => checked.has(String(s.course_id ?? s.id)))
+      .map((s: any) => ({
+        weekly_hours_lecture: s.weekly_hours_lecture ?? null,
+        exam_duration_minutes: s.exam_duration_minutes ?? null,
+      }));
+  }, [sections, checked]);
+
+  const newGroupDurationMinutes = React.useMemo(
+    () => groupExamDurationMinutes(newGroupCourses, slotDurationMinutes, sessionMode),
+    [newGroupCourses, slotDurationMinutes, sessionMode],
+  );
+
+  type PinnedWindow = {
+    groupLabel: string;
+    startMin: number;
+    endMin: number;
+    codes: string[];
+  };
+
+  const pinnedWindowsByDate: Record<string, PinnedWindow[]> = React.useMemo(() => {
+    const out: Record<string, PinnedWindow[]> = {};
+    for (const g of groups) {
+      if (!g.slot_date || !g.slot_start_time) continue;
+      const courses: DurationInputs[] = g.courses.map(c => ({
+        weekly_hours_lecture: c.weekly_hours_lecture,
+        exam_duration_minutes: c.exam_duration_minutes,
+      }));
+      const dur = groupExamDurationMinutes(courses, slotDurationMinutes, sessionMode);
+      if (dur <= 0) continue;
+      const start = timeStringToMinutes(g.slot_start_time);
+      (out[g.slot_date] ||= []).push({
+        groupLabel: g.label,
+        startMin: start,
+        endMin: start + dur,
+        codes: g.courses.map(c => c.code),
+      });
+    }
+    return out;
+  }, [groups, slotDurationMinutes, sessionMode]);
+
   const weekdayLabel = (dateStr: string) => {
     const d = new Date(dateStr + "T00:00:00");
     return ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"][d.getDay()];
@@ -129,7 +195,15 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
       setShowModal(false);
       refetchGroups();
     } catch (e: any) {
-      setSaveErr(e.data ? JSON.stringify(e.data) : e.message || "Kayıt başarısız.");
+      const msg =
+        e?.data?.slot
+          ? (Array.isArray(e.data.slot) ? e.data.slot.join(" ") : String(e.data.slot))
+          : e?.data?.detail
+            ? String(e.data.detail)
+            : e?.data
+              ? JSON.stringify(e.data)
+              : e?.message || "Kayıt başarısız.";
+      setSaveErr(msg);
     } finally {
       setSaving(false);
     }
@@ -394,26 +468,66 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                           <td key={date} style={{ borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }} />
                         );
                         const blocked = slot.is_blocked;
+
+                        let conflict: PinnedWindow | null = null;
+                        if (!blocked && newGroupDurationMinutes > 0) {
+                          const sStart = timeStringToMinutes(slot.start_time);
+                          const sEnd = sStart + newGroupDurationMinutes;
+                          const windows = pinnedWindowsByDate[date] || [];
+                          for (const w of windows) {
+                            if (intervalsOverlap(sStart, sEnd, w.startMin, w.endMin)) {
+                              conflict = w;
+                              break;
+                            }
+                          }
+                        }
+
+                        const isLocked = blocked || !!conflict;
+                        const bg = blocked
+                          ? `color-mix(in srgb, ${C.red} 16%, transparent)`
+                          : conflict
+                            ? `color-mix(in srgb, ${C.red} 12%, transparent)`
+                            : `color-mix(in srgb, ${C.green} 12%, transparent)`;
+                        const tooltip = blocked
+                          ? "Engellenmiş — seçilemez"
+                          : conflict
+                            ? `${conflict.groupLabel} — bu saat aralığında başka eş zamanlı sınav var: ${conflict.codes.join(", ")}`
+                            : "Tıkla: bu saate ata";
+
                         return (
                           <td
                             key={date}
-                            onClick={() => !blocked && !saving && pickSlot(slot)}
-                            title={blocked ? "Engellenmiş — seçilemez" : "Tıkla: bu saate ata"}
+                            onClick={() => !isLocked && !saving && pickSlot(slot)}
+                            title={tooltip}
                             style={{
                               borderBottom: `1px solid ${C.border}`,
                               borderRight: `1px solid ${C.border}`,
-                              background: blocked
-                                ? `color-mix(in srgb, ${C.red} 16%, transparent)`
-                                : `color-mix(in srgb, ${C.green} 12%, transparent)`,
-                              cursor: blocked ? "not-allowed" : saving ? "wait" : "pointer",
-                              padding: "8px 10px",
+                              background: bg,
+                              cursor: isLocked ? "not-allowed" : saving ? "wait" : "pointer",
+                              padding: conflict ? "4px 6px" : "8px 10px",
                               textAlign: "center",
                               transition: "background 120ms ease-out",
                               userSelect: "none",
                               opacity: saving ? 0.6 : 1,
+                              minWidth: 90,
                             }}
                           >
-                            <span style={{ fontSize: 14 }}>{blocked ? "✕" : "✓"}</span>
+                            {blocked ? (
+                              <span style={{ fontSize: 14 }}>✕</span>
+                            ) : conflict ? (
+                              <div style={{ ...mono, fontSize: 9, lineHeight: 1.15, color: C.red, fontWeight: 600 }}>
+                                {conflict.codes.slice(0, 3).map(code => (
+                                  <div key={code} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    {code}
+                                  </div>
+                                ))}
+                                {conflict.codes.length > 3 && (
+                                  <div style={{ opacity: 0.7 }}>+{conflict.codes.length - 3}</div>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 14 }}>✓</span>
+                            )}
                           </td>
                         );
                       })}
