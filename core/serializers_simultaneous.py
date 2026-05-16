@@ -7,10 +7,17 @@ class SimultaneousExamGroupCourseSerializer(serializers.ModelSerializer):
     code = serializers.CharField(source='course.code', read_only=True)
     name = serializers.CharField(source='course.name', read_only=True)
     year_level = serializers.IntegerField(source='course.year_level', read_only=True, allow_null=True)
+    exam_duration_minutes = serializers.IntegerField(
+        source='course.exam_duration_minutes', read_only=True, allow_null=True
+    )
+    weekly_hours_lecture = serializers.IntegerField(
+        source='course.weekly_hours_lecture', read_only=True, allow_null=True
+    )
 
     class Meta:
         model = SimultaneousExamGroupCourse
-        fields = ['course_id', 'code', 'name', 'year_level']
+        fields = ['course_id', 'code', 'name', 'year_level',
+                  'exam_duration_minutes', 'weekly_hours_lecture']
 
 
 class SimultaneousExamGroupSerializer(serializers.ModelSerializer):
