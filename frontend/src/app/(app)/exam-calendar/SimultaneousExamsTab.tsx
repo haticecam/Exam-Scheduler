@@ -139,6 +139,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     });
 
   const [showModal, setShowModal] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -191,10 +192,56 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     return out;
   }, [groups, slotDurationMinutes, sessionMode]);
 
+  // Current-grid occupancy: maps "date|time" → { group, rowSpan } for the
+  // read-only schedule view. rowSpan === 0 means the cell is covered by the
+  // rowSpan'd start cell above it and should not be rendered.
+  const gridOccupancyCells = React.useMemo(() => {
+    const result = new Map<string, { group: SimGroup; rowSpan: number }>();
+    for (const g of groups) {
+      if (!g.slot_date || !g.slot_start_time) continue;
+      const courses: DurationInputs[] = g.courses.map(c => ({
+        weekly_hours_lecture: c.weekly_hours_lecture,
+        exam_duration_minutes: c.exam_duration_minutes,
+      }));
+      const dur = groupExamDurationMinutes(courses, slotDurationMinutes, sessionMode);
+      if (dur <= 0) continue;
+      const startMin = timeStringToMinutes(g.slot_start_time);
+      const endMin = startMin + dur;
+      let firstKey: string | null = null;
+      let span = 0;
+      for (const time of times) {
+        const slot = slotMap[`${g.slot_date}|${time}`];
+        if (!slot) continue;
+        const sStart = timeStringToMinutes(slot.start_time);
+        if (sStart >= startMin && sStart < endMin) {
+          const key = `${g.slot_date}|${time}`;
+          if (!firstKey) { firstKey = key; result.set(key, { group: g, rowSpan: 1 }); }
+          else { result.set(key, { group: g, rowSpan: 0 }); }
+          span++;
+        }
+      }
+      if (firstKey && span > 1) {
+        const cell = result.get(firstKey);
+        if (cell) cell.rowSpan = span;
+      }
+    }
+    return result;
+  }, [groups, times, slotMap, slotDurationMinutes, sessionMode]);
+
   // Per-cell merge info: consecutive conflict cells with the same group label
   // are collapsed into one rowSpan'd start cell. rowSpan === 0 means "skip
   // rendering this cell, it's covered by the merged start above".
-  type ConflictCellInfo = { conflict: PinnedWindow; rowSpan: number };
+  //
+  // conflictType:
+  //   'window' — the slot falls inside the existing group's actual exam window
+  //              [w.startMin, w.endMin). These cells are merged and show the
+  //              group's time/courses (red). This is what the user sees as the
+  //              exam occupying that time.
+  //   'buffer' — the slot is BEFORE w.startMin but a new exam starting here
+  //              would still run into the existing group. Shown individually
+  //              in amber so the user understands "can't start here, exam
+  //              begins soon" without making it look like the exam IS here.
+  type ConflictCellInfo = { conflict: PinnedWindow; rowSpan: number; conflictType: 'window' | 'buffer' };
   const conflictCells: Map<string, ConflictCellInfo> = React.useMemo(() => {
     const result = new Map<string, ConflictCellInfo>();
     if (newGroupDurationMinutes <= 0) return result;
@@ -219,28 +266,35 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
         const slot = slotMap[`${date}|${time}`];
         const key = `${date}|${time}`;
         let conflict: PinnedWindow | null = null;
+        let conflictType: 'window' | 'buffer' = 'window';
         if (slot && !slot.is_blocked) {
           const sStart = timeStringToMinutes(slot.start_time);
           const sEnd = sStart + newGroupDurationMinutes;
           for (const w of windows) {
             if (intervalsOverlap(sStart, sEnd, w.startMin, w.endMin)) {
               conflict = w;
+              conflictType = sStart >= w.startMin ? 'window' : 'buffer';
               break;
             }
           }
         }
 
-        if (conflict && conflict.groupLabel === runLabel) {
-          // Continuation cell: increment run, mark for skip-render.
+        if (conflict && conflictType === 'window' && conflict.groupLabel === runLabel) {
+          // Continuation of a window run — merge into rowSpan'd start cell.
           runLength += 1;
-          result.set(key, { conflict, rowSpan: 0 });
+          result.set(key, { conflict, rowSpan: 0, conflictType: 'window' });
         } else {
           closeRun();
           if (conflict) {
-            runStartKey = key;
-            runLength = 1;
-            runLabel = conflict.groupLabel;
-            result.set(key, { conflict, rowSpan: 1 });
+            if (conflictType === 'window') {
+              runStartKey = key;
+              runLength = 1;
+              runLabel = conflict.groupLabel;
+              result.set(key, { conflict, rowSpan: 1, conflictType: 'window' });
+            } else {
+              // Buffer cells are never merged — each renders individually.
+              result.set(key, { conflict, rowSpan: 1, conflictType: 'buffer' });
+            }
           }
         }
       }
@@ -248,6 +302,12 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     }
     return result;
   }, [dates, times, slotMap, pinnedWindowsByDate, newGroupDurationMinutes]);
+
+  const minutesToTimeStr = (min: number) => {
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  };
 
   const weekdayLabel = (dateStr: string) => {
     const d = new Date(dateStr + "T00:00:00");
@@ -309,7 +369,29 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
         <>
           {/* 2 — Existing groups */}
           <Card style={{ padding: "16px 24px" }}>
-            <SL>EŞ ZAMANLI SINAV GRUPLARI</SL>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <SL style={{ margin: 0 }}>EŞ ZAMANLI SINAV GRUPLARI</SL>
+              {slots.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowGrid(v => !v)}
+                  style={{
+                    background: showGrid ? `color-mix(in srgb, ${C.cyan} 14%, transparent)` : "transparent",
+                    border: `1px solid ${showGrid ? C.cyan : C.border}`,
+                    borderRadius: 6,
+                    padding: "6px 14px",
+                    cursor: "pointer",
+                    color: showGrid ? C.cyan : C.textMuted,
+                    fontSize: 12,
+                    fontWeight: showGrid ? 700 : 400,
+                    ...mono,
+                    transition: "all 140ms ease-out",
+                  }}
+                >
+                  {showGrid ? "Takvimi Gizle" : "Takvimi Görüntüle"}
+                </button>
+              )}
+            </div>
             {groups.length === 0 ? (
               <InfoBox msg="Henüz eş zamanlı sınav grubu oluşturulmadı." />
             ) : (
@@ -364,6 +446,117 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
               </div>
             )}
           </Card>
+
+          {/* 2b — Current schedule grid */}
+          {showGrid && slots.length > 0 && (
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              <div style={{ padding: "12px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <SL style={{ margin: 0 }}>MEVCUT TAKVİM</SL>
+                {groups.filter(g => g.slot_date).length > 0 && (
+                  <span style={{ fontSize: 11, color: C.textMuted, ...mono }}>
+                    {groups.filter(g => g.slot_date).length} grup atanmış
+                  </span>
+                )}
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
+                  <thead>
+                    <tr>
+                      <th style={{
+                        position: "sticky", left: 0, background: "var(--surface)", zIndex: 2,
+                        padding: "8px 14px", borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+                        ...mono, fontSize: 10, color: C.textMuted, textAlign: "left", fontWeight: 600,
+                      }}>
+                        SAAT
+                      </th>
+                      {dates.map(date => (
+                        <th key={date} style={{
+                          padding: "8px 10px", borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+                          minWidth: 110, textAlign: "center", background: "var(--surface)",
+                        }}>
+                          <div style={{ ...mono, fontSize: 11, color: C.text, fontWeight: 700 }}>{weekdayLabel(date)}</div>
+                          <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>{formatDdMm(date)}</div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {times.map((time, rowIdx) => (
+                      <tr key={time} style={{ background: rowIdx % 2 === 0 ? "transparent" : "color-mix(in srgb, var(--surface) 50%, transparent)" }}>
+                        <td style={{
+                          position: "sticky", left: 0, background: "var(--surface)", zIndex: 1,
+                          padding: "6px 14px", borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+                          ...mono, fontSize: 11, color: C.textMuted, whiteSpace: "nowrap",
+                        }}>
+                          {time.slice(0, 5)}
+                        </td>
+                        {dates.map(date => {
+                          const slot = slotMap[`${date}|${time}`];
+                          if (!slot) return (
+                            <td key={date} style={{ borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }} />
+                          );
+                          const cellInfo = gridOccupancyCells.get(`${date}|${time}`);
+                          if (cellInfo && cellInfo.rowSpan === 0) return null;
+                          const occupied = cellInfo ?? null;
+                          const bg = slot.is_blocked
+                            ? `color-mix(in srgb, ${C.red} 10%, transparent)`
+                            : occupied
+                              ? `color-mix(in srgb, ${C.cyan} 14%, transparent)`
+                              : "transparent";
+                          return (
+                            <td
+                              key={date}
+                              rowSpan={occupied?.rowSpan ?? 1}
+                              style={{
+                                borderBottom: `1px solid ${C.border}`,
+                                borderRight: `1px solid ${C.border}`,
+                                background: bg,
+                                padding: occupied ? "6px 8px" : "6px 10px",
+                                textAlign: "center",
+                                verticalAlign: "middle",
+                              }}
+                            >
+                              {slot.is_blocked ? (
+                                <span style={{ fontSize: 12, color: C.red, opacity: 0.5 }}>✕</span>
+                              ) : occupied ? (
+                                <div style={{ ...mono, lineHeight: 1.3 }}>
+                                  <div style={{ fontSize: 9, color: C.textMuted, marginBottom: 2 }}>
+                                    {minutesToTimeStr(timeStringToMinutes(occupied.group.slot_start_time!))}
+                                    –
+                                    {minutesToTimeStr(
+                                      timeStringToMinutes(occupied.group.slot_start_time!) +
+                                      groupExamDurationMinutes(
+                                        occupied.group.courses.map(c => ({
+                                          weekly_hours_lecture: c.weekly_hours_lecture,
+                                          exam_duration_minutes: c.exam_duration_minutes,
+                                        })),
+                                        slotDurationMinutes,
+                                        sessionMode
+                                      )
+                                    )}
+                                  </div>
+                                  {Array.from(new Set(occupied.group.courses.map(c => c.code))).slice(0, 4).map(code => (
+                                    <div key={code} style={{ fontSize: 10, color: C.cyan, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      {code}
+                                    </div>
+                                  ))}
+                                  {occupied.group.courses.length > 4 && (
+                                    <div style={{ fontSize: 9, color: C.textMuted }}>
+                                      +{occupied.group.courses.length - 4}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : null}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
 
           {/* 3 — Course list with checkboxes */}
           <Card style={{ padding: "16px 24px" }}>
@@ -552,23 +745,28 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                         );
                         const blocked = slot.is_blocked;
                         const cellInfo = conflictCells.get(`${date}|${time}`);
-                        // Continuation of a merged conflict run — fully covered by the
+                        // Continuation of a merged window-conflict run — fully covered by the
                         // rowSpan'd start cell above; do not emit a <td>.
                         if (cellInfo && cellInfo.rowSpan === 0) return null;
 
                         const conflict = cellInfo?.conflict ?? null;
+                        const conflictType = cellInfo?.conflictType ?? null;
                         const rowSpan = cellInfo?.rowSpan ?? 1;
                         const isLocked = blocked || !!conflict;
                         const bg = blocked
                           ? `color-mix(in srgb, ${C.red} 16%, transparent)`
-                          : conflict
-                            ? `color-mix(in srgb, ${C.red} 12%, transparent)`
-                            : `color-mix(in srgb, ${C.green} 12%, transparent)`;
+                          : conflictType === 'buffer'
+                            ? `color-mix(in srgb, ${C.amber} 14%, transparent)`
+                            : conflict
+                              ? `color-mix(in srgb, ${C.red} 12%, transparent)`
+                              : `color-mix(in srgb, ${C.green} 12%, transparent)`;
                         const tooltip = blocked
                           ? "Engellenmiş — seçilemez"
-                          : conflict
-                            ? `${conflict.groupLabel} — bu saat aralığında başka eş zamanlı sınav var: ${conflict.codes.join(", ")}`
-                            : "Tıkla: bu saate ata";
+                          : conflictType === 'buffer'
+                            ? `${conflict!.groupLabel} bu saatte başlar (${minutesToTimeStr(conflict!.startMin)}) — ${newGroupDurationMinutes} dk'lık sınav çakışır`
+                            : conflict
+                              ? `${conflict.groupLabel} — ${minutesToTimeStr(conflict.startMin)}–${minutesToTimeStr(conflict.endMin)} — ${conflict.codes.join(", ")}`
+                              : "Tıkla: bu saate ata";
 
                         return (
                           <td
@@ -592,8 +790,15 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                           >
                             {blocked ? (
                               <span style={{ fontSize: 14 }}>✕</span>
+                            ) : conflictType === 'buffer' ? (
+                              <div style={{ ...mono, fontSize: 9, color: C.amber, fontWeight: 600, lineHeight: 1.3 }}>
+                                →{minutesToTimeStr(conflict!.startMin)}
+                              </div>
                             ) : conflict ? (
                               <div style={{ ...mono, fontSize: 10, lineHeight: 1.25, color: C.red, fontWeight: 600 }}>
+                                <div style={{ fontSize: 9, opacity: 0.8, marginBottom: 2 }}>
+                                  {minutesToTimeStr(conflict.startMin)}–{minutesToTimeStr(conflict.endMin)}
+                                </div>
                                 {conflict.codes.slice(0, 3).map(code => (
                                   <div key={code} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                     {code}
