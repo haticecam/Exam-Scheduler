@@ -4,7 +4,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.permissions import AllowAny
 
-from core.views_auth import PasswordResetConfirmView, PasswordResetRequestView, RegisterView
+from core.views import PasswordResetConfirmView, PasswordResetRequestView, RegisterView
 
 
 class PublicSpectacularAPIView(SpectacularAPIView):

@@ -285,65 +285,17 @@ export default function StudentsPage() {
         }
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 420px", gap: 32 }}>
-        {/* Left: simulation */}
-        <Card style={{ padding: 32 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <SL style={{ margin: 0 }}>Öğrenci Simülasyon Motoru</SL>
-            <ModeBadge label="Demo" color="var(--status-warning)" />
-          </div>
-          <p style={{ color: C.textMuted, fontSize: 14, margin: "0 0 24px", lineHeight: 1.7 }}>
-            Gerçek öğrenci verisi olmadan sistemi test etmek için kullanın. Yüklediğiniz ders kontenjanlarına tamamen uygun, binlerce rastgele öğrenci kaydı algoritmik olarak üretilir ve aktif döneme atanır.
-          </p>
-          <p style={{ color: C.textMuted, fontSize: 13, margin: "0 0 24px", lineHeight: 1.7 }}>
-            Simülasyon tamamlandığında öğrenci listesi CSV olarak indirilir. Gerçek veri yüklendiğinde bu kayıtları silebilirsiniz.
-          </p>
-          <ActionButton onClick={handleSimulate} disabled={simulating || noTerm}>
-            {noTerm ? "Aktif dönem yok" : simulating ? <><Spinner size={13} /> Simüle ediliyor…</> : "Öğrenci Simülasyonu Başlat"}
-          </ActionButton>
-          {showSuccess && !simulating && (
-            <div style={{ marginTop: 12, color: C.green, fontSize: 13, ...mono }}>
-              ✓ Simülasyon tamamlandı.
-            </div>
-          )}
-          {simError && (
-            <div style={{ marginTop: 12, color: C.red, fontSize: 13, ...mono }}>{simError}</div>
-          )}
-        </Card>
-
-        {/* Right: upload cards */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {/* Production upload */}
-          <Card style={{ padding: 24 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <SL style={{ margin: 0 }}>Gerçek Kayıt Yükleme</SL>
-              <ModeBadge label="Üretim" color="var(--status-success)" />
-            </div>
-            <p style={{ color: C.textMuted, fontSize: 12, margin: "0 0 16px", lineHeight: 1.6 }}>
-              Üniversite kayıt sisteminden alınan XLSX dosyalarını yükleyin. Her dosya bir derse ait öğrenci listesini içermeli ve dosya adı ders kodunu taşımalıdır (örn: <span style={{ ...mono, color: C.cyan }}>CENG113.xlsx</span>). Birden fazla dosyayı aynı anda seçebilirsiniz.
-            </p>
-            <XlsxMultiUploader term={term} onSuccess={refetch} />
-          </Card>
-
-          {/* Demo CSV upload */}
-          <Card style={{ padding: 24 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <SL style={{ margin: 0 }}>Manuel CSV Yükleme</SL>
-              <ModeBadge label="Demo" color="var(--status-warning)" />
-            </div>
-            <p style={{ color: C.textMuted, fontSize: 12, margin: "0 0 16px", lineHeight: 1.6 }}>
-              Test ve geliştirme amaçlıdır. Öğrenci-ders eşleşmelerini tek bir CSV dosyasında toplu olarak yükleyin. Her satır bir öğrencinin bir derse kaydını temsil eder.
-            </p>
-            <CSVUploader
-              title="Kayıt Listesi (CSV)"
-              endpoint="/students/"
-              templateCols={["Student Identifier", "Program Name", "Year Level", "Course Code", "Section Label"]}
-              extraData={term ? { term_id: term.id } : undefined}
-              onSuccess={refetch}
-            />
-          </Card>
+      {/* Top: production upload — full width, prominent */}
+      <Card style={{ padding: 32 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <SL style={{ margin: 0 }}>Gerçek Kayıt Yükleme</SL>
+          <ModeBadge label="Üretim" color="var(--status-success)" />
         </div>
-      </div>
+        <p style={{ color: C.textMuted, fontSize: 14, margin: "0 0 24px", lineHeight: 1.7 }}>
+          Üniversite kayıt sisteminden alınan XLSX dosyalarını yükleyin. Her dosya bir derse ait öğrenci listesini içermeli ve dosya adı ders kodunu taşımalıdır (örn: <span style={{ ...mono, color: C.cyan }}>CENG113.xlsx</span>). Birden fazla dosyayı aynı anda seçebilirsiniz.
+        </p>
+        <XlsxMultiUploader term={term} onSuccess={refetch} />
+      </Card>
 
       {/* Conflicts section */}
       <Card style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
@@ -468,6 +420,50 @@ export default function StudentsPage() {
           </div>
         )}
       </Card>
+
+      {/* Bottom: demo tools */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+        <Card style={{ padding: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <SL style={{ margin: 0 }}>Öğrenci Simülasyon Motoru</SL>
+            <ModeBadge label="Demo" color="var(--status-warning)" />
+          </div>
+          <p style={{ color: C.textMuted, fontSize: 13, margin: "0 0 16px", lineHeight: 1.7 }}>
+            Gerçek öğrenci verisi olmadan sistemi test etmek için kullanın. Yüklediğiniz ders kontenjanlarına tamamen uygun, binlerce rastgele öğrenci kaydı algoritmik olarak üretilir ve aktif döneme atanır.
+          </p>
+          <p style={{ color: C.textMuted, fontSize: 13, margin: "0 0 20px", lineHeight: 1.7 }}>
+            Simülasyon tamamlandığında öğrenci listesi CSV olarak indirilir. Gerçek veri yüklendiğinde bu kayıtları silebilirsiniz.
+          </p>
+          <ActionButton onClick={handleSimulate} disabled={simulating || noTerm}>
+            {noTerm ? "Aktif dönem yok" : simulating ? <><Spinner size={13} /> Simüle ediliyor…</> : "Öğrenci Simülasyonu Başlat"}
+          </ActionButton>
+          {showSuccess && !simulating && (
+            <div style={{ marginTop: 12, color: C.green, fontSize: 13, ...mono }}>
+              ✓ Simülasyon tamamlandı.
+            </div>
+          )}
+          {simError && (
+            <div style={{ marginTop: 12, color: C.red, fontSize: 13, ...mono }}>{simError}</div>
+          )}
+        </Card>
+
+        <Card style={{ padding: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <SL style={{ margin: 0 }}>Manuel CSV Yükleme</SL>
+            <ModeBadge label="Demo" color="var(--status-warning)" />
+          </div>
+          <p style={{ color: C.textMuted, fontSize: 13, margin: "0 0 16px", lineHeight: 1.6 }}>
+            Test ve geliştirme amaçlıdır. Öğrenci-ders eşleşmelerini tek bir CSV dosyasında toplu olarak yükleyin. Her satır bir öğrencinin bir derse kaydını temsil eder.
+          </p>
+          <CSVUploader
+            title="Kayıt Listesi (CSV)"
+            endpoint="/students/"
+            templateCols={["Student Identifier", "Program Name", "Year Level", "Course Code", "Section Label"]}
+            extraData={term ? { term_id: term.id } : undefined}
+            onSuccess={refetch}
+          />
+        </Card>
+      </div>
 
       <ConfirmDialog
         open={confirmDeleteOpen}

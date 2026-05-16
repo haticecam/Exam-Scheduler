@@ -1,9 +1,11 @@
 import datetime
-from rest_framework import viewsets, status
+
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from .models import ExamPeriod, ExamDateSlot, CourseSection, ExamPeriodSectionExclusion
-from .serializers_exam import ExamPeriodSerializer, ExamDateSlotSerializer, GenerateSlotsRequestSerializer
+
+from ..models import CourseSection, ExamDateSlot, ExamPeriod, ExamPeriodSectionExclusion
+from ..serializers import ExamDateSlotSerializer, ExamPeriodSerializer, GenerateSlotsRequestSerializer
 
 
 class ExamPeriodViewSet(viewsets.ModelViewSet):
@@ -52,7 +54,6 @@ class ExamPeriodViewSet(viewsets.ModelViewSet):
             current_date += one_day
 
         ExamDateSlot.objects.bulk_create(slots)
-        # Store mode in period.config so the optimizer can detect session vs 30-min mode
         period.config = {**period.config, "slot_mode": slot_mode}
         period.save(update_fields=["config"])
 
