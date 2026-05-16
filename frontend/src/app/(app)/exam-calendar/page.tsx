@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import SimultaneousExamsTab from "./SimultaneousExamsTab";
 
 type ExamPeriod = {
   id: string;
@@ -63,7 +64,7 @@ const lStyle: React.CSSProperties = {
 };
 
 export default function ExamCalendarPage() {
-  const [activeTab, setActiveTab] = useState<"calendar" | "optimization">("calendar");
+  const [activeTab, setActiveTab] = useState<"calendar" | "optimization" | "simultaneous">("calendar");
 
   /* ── Shared: terms list ─────────────────────────────────────────────────── */
   const { data: termsData } = useFetch("/terms/");
@@ -264,10 +265,36 @@ export default function ExamCalendarPage() {
 
   const { data: sectionsData, loading: sectionsLoading, refetch: refetchSections } = useFetch(
     optTermId && optPeriodId
-      ? `/course-sections/?term_id=${optTermId}&exam_period_id=${optPeriodId}`
+      ? `/course-sections/?term_id=${optTermId}&exam_period_id=${optPeriodId}&include_empty=true`
       : ""
   );
   const sections: any[] = sectionsData?.results || sectionsData || [];
+
+  const { data: deptsData } = useFetch("/academic-units/");
+  const depts: any[] = deptsData?.results || deptsData || [];
+
+  const [filterDept, setFilterDept] = useState("Tümü");
+  const [filterYear, setFilterYear] = useState("Tümü");
+  const [filterType, setFilterType] = useState("Tümü");
+  const [search, setSearch] = useState("");
+
+  React.useEffect(() => {
+    setFilterDept("Tümü");
+    setFilterYear("Tümü");
+    setFilterType("Tümü");
+    setSearch("");
+  }, [optTermId, optPeriodId]);
+
+  const filteredSections = sections.filter((s: any) => {
+    if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
+    if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
+    if (filterType !== "Tümü" && s.requirement !== filterType) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!s.course_name?.toLowerCase().includes(q) && !s.course_code?.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
 
   const [toggleError, setToggleError] = useState<string | null>(null);
 
@@ -349,12 +376,16 @@ export default function ExamCalendarPage() {
         Sınav Takvimi
       </h2>
       <p style={{ color: C.textMuted, fontSize: 14, marginBottom: 20 }}>
-        Sınav haftasını seçin, zaman dilimlerini ve engellenen günleri yönetin.
+        {activeTab === "calendar"
+          ? "Sınav haftasını seçin, zaman dilimlerini ve engellenen günleri yönetin."
+          : activeTab === "optimization"
+          ? "Sınav takvimine dahil edilecek dersleri seçin ve ders bilgilerini düzenleyin."
+          : "Aynı zaman diliminde yapılacak ders gruplarını tanımlayın ve yönetin."}
       </p>
 
       {/* Tab switcher */}
       <div style={{ display: "flex", gap: 4, borderBottom: `1px solid ${C.border}`, marginBottom: 24 }}>
-        {(["calendar", "optimization"] as const).map(tab => (
+        {(["calendar", "optimization", "simultaneous"] as const).map(tab => (
           <button
             key={tab}
             type="button"
@@ -372,7 +403,7 @@ export default function ExamCalendarPage() {
               marginBottom: -1,
             }}
           >
-            {tab === "calendar" ? "Sınav Takvimi" : "Ders Seçimi"}
+            {tab === "calendar" ? "Sınav Takvimi" : tab === "optimization" ? "Ders Seçimi" : "Eş zamanlı sınavlar"}
           </button>
         ))}
       </div>
@@ -653,47 +684,85 @@ export default function ExamCalendarPage() {
         </>
       )}
 
+      {/* ── Shared selector: Optimization + Simultaneous tabs ─────────────── */}
+      {(activeTab === "optimization" || activeTab === "simultaneous") && (
+        <Card style={{ padding: "16px 24px", marginBottom: 0 }}>
+          <div style={{ display: "flex", gap: 16 }}>
+            <div style={{ flex: 1, maxWidth: 320 }}>
+              <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>
+                DÖNEM
+              </label>
+              <select
+                value={optTermId}
+                onChange={e => setOptTermId(e.target.value)}
+                style={optSelectStyle}
+              >
+                <option value="">— Dönem seçin —</option>
+                {terms.map((t: any) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1, maxWidth: 320 }}>
+              <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>
+                SINAV TAKVİMİ
+              </label>
+              <select
+                value={optPeriodId}
+                onChange={e => setOptPeriodId(e.target.value)}
+                style={{ ...optSelectStyle, opacity: optPeriods.length === 0 ? 0.5 : 1 }}
+                disabled={!optTermId || optPeriods.length === 0}
+              >
+                <option value="">— Takvim seçin —</option>
+                {optPeriods.map((p: any) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* ── Optimization tab ──────────────────────────────────────────────── */}
       {activeTab === "optimization" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <Card style={{ padding: "16px 24px" }}>
-            <div style={{ display: "flex", gap: 16 }}>
-              <div style={{ flex: 1, maxWidth: 320 }}>
-                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>
-                  DÖNEM
-                </label>
-                <select
-                  value={optTermId}
-                  onChange={e => setOptTermId(e.target.value)}
-                  style={optSelectStyle}
-                >
-                  <option value="">— Dönem seçin —</option>
-                  {terms.map((t: any) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div style={{ flex: 1, maxWidth: 320 }}>
-                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>
-                  SINAV TAKVİMİ
-                </label>
-                <select
-                  value={optPeriodId}
-                  onChange={e => setOptPeriodId(e.target.value)}
-                  style={{ ...optSelectStyle, opacity: optPeriods.length === 0 ? 0.5 : 1 }}
-                  disabled={!optTermId || optPeriods.length === 0}
-                >
-                  <option value="">— Tümü (takvim seçilmedi) —</option>
-                  {optPeriods.map((p: any) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          </Card>
-
           {toggleError && (
             <p style={{ color: "red", fontSize: 12, margin: "0 0 8px" }}>{toggleError}</p>
+          )}
+          {optTermId && optPeriodId && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 150px 1fr", gap: 12 }}>
+              <div>
+                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>BÖLÜM</label>
+                <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={optSelectStyle}>
+                  <option value="Tümü">Tümü</option>
+                  {depts.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>YIL</label>
+                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={optSelectStyle}>
+                  <option value="Tümü">Tümü</option>
+                  {[1, 2, 3, 4].map(y => <option key={y} value={String(y)}>{y}. Sınıf</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>TÜR</label>
+                <select value={filterType} onChange={e => setFilterType(e.target.value)} style={optSelectStyle}>
+                  <option value="Tümü">Tümü</option>
+                  <option value="COMPULSORY">Zorunlu</option>
+                  <option value="ELECTIVE">Seçmeli</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>ARAMA</label>
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Ders adı veya kodu..."
+                  style={optSelectStyle}
+                />
+              </div>
+            </div>
           )}
           <DataTable headers={["Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Sınav Süresi", "Hariç Tut", ""]}>
             {sectionsLoading && (
@@ -724,7 +793,14 @@ export default function ExamCalendarPage() {
                 </DataCell>
               </DataRow>
             )}
-            {sections.map((sec: any) => {
+            {!sectionsLoading && optTermId && optPeriodId && sections.length > 0 && filteredSections.length === 0 && (
+              <DataRow>
+                <DataCell colSpan={7}>
+                  <InfoBox msg="Uygun ders bulunamadı." />
+                </DataCell>
+              </DataRow>
+            )}
+            {filteredSections.map((sec: any) => {
               const effSlots = sec.exam_duration_minutes ? Math.ceil(sec.exam_duration_minutes / 30) : null;
               const effMins = effSlots ? effSlots * 30 : null;
               const isRounded = effMins !== null && effMins !== sec.exam_duration_minutes;
@@ -801,6 +877,9 @@ export default function ExamCalendarPage() {
           </DataTable>
         </div>
       )}
+
+      {/* ── Simultaneous exams tab ────────────────────────────────────────── */}
+      {activeTab === "simultaneous" && <SimultaneousExamsTab termId={optTermId} periodId={optPeriodId} />}
 
       {/* Edit ExamPeriod dialog */}
       <Dialog open={!!editPeriod} onOpenChange={open => { if (!open) setEditPeriod(null); }}>

@@ -39,7 +39,7 @@ services:
 
   celery:
     build: .
-    command: celery -A exam_scheduler worker -l info
+    command: celery -A exam_scheduler worker -l info --concurrency=1
     volumes:
       - .:/app
     env_file:

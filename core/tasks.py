@@ -1,7 +1,7 @@
 from celery import shared_task
 import logging
 import traceback
-from .models import GeneratedSolution
+from .models import GeneratedSolution, SimultaneousExamGroup
 from .services.optimizer import OptimizerService
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,46 @@ def dummy_gurobi_task():
         return {"status": "error", "message": str(e)}
 
 
+def _build_pinned_exams(exam_period_id: str, calendar: dict, courses: list) -> dict:
+    """
+    Load SimultaneousExamGroup rows for the period and convert each group's
+    ExamDateSlot into a flat slot index understood by the optimizer.
+    Returns dict: unit_key -> slot_index
+    """
+    if not exam_period_id or not calendar:
+        return {}
+
+    active_dates = calendar.get("active_dates", [])
+    all_start_times = calendar.get("all_start_times", [])
+    slots_per_day = calendar["slots_per_day"]
+
+    course_to_unit_keys: dict[str, list[str]] = {}
+    for row in courses:
+        cid = str(row["course_id"])
+        course_to_unit_keys.setdefault(cid, []).append(row["unit_key"])
+
+    pinned: dict[str, int] = {}
+    groups = SimultaneousExamGroup.objects.filter(
+        exam_period_id=exam_period_id
+    ).prefetch_related("group_courses", "slot")
+
+    for group in groups:
+        if not group.slot:
+            continue
+        try:
+            day_idx = active_dates.index(group.slot.date)
+            time_idx = all_start_times.index(group.slot.start_time)
+        except ValueError:
+            logger.warning(f"Simultaneous group {group.id}: slot not in active calendar — skipped")
+            continue
+        slot_idx = day_idx * slots_per_day + time_idx
+        for gc in group.group_courses.all():
+            for unit_key in course_to_unit_keys.get(str(gc.course_id), []):
+                pinned[unit_key] = slot_idx
+
+    return pinned
+
+
 @shared_task(bind=True)
 def run_optimizer_task(self, solution_id: str):
     logger.info(f"Starting optimizer task for solution {solution_id}")
@@ -66,6 +106,13 @@ def run_optimizer_task(self, solution_id: str):
                 "session_mode": calendar["session_mode"],
             }
 
+        courses_for_pin = svc.load_courses() if exam_period_id else []
+        pinned_exams = _build_pinned_exams(
+            exam_period_id,
+            calendar if exam_period_id else {},
+            courses_for_pin,
+        )
+
         solve_kwargs = {
             'hard_threshold': params.get('hard_threshold', 5),
             'time_limit': params.get('time_limit', None),
@@ -78,6 +125,7 @@ def run_optimizer_task(self, solution_id: str):
             'year_order_sequence': params.get('year_order_sequence', None),
             'year_order_weights': params.get('year_order_weights', None),
             'weight_config': params.get('weight_config', None),
+            'pinned_exams': pinned_exams,
         }
         solve_kwargs.update(calendar_kwargs)  # calendar overrides exam_days/slots_per_day/start_hour
         result = svc.solve(**solve_kwargs)

@@ -133,7 +133,7 @@ class OptimizerService:
         Sections excluded for the active exam period are skipped entirely.
         """
         exclusion_clause = ""
-        params: list = []
+        params: list = [self.term_id]
         if self.exam_period_id:
             exclusion_clause = """
                   AND NOT EXISTS (
@@ -168,6 +168,7 @@ class OptimizerService:
                 WHERE cc.year_level IS NOT NULL
                   AND cc.requirement IS NOT NULL
                   AND cc.name NOT ILIKE '%%graduation%%'
+                  AND e.term_id = %s::uuid
                   {exclusion_clause}
                 GROUP BY cc.id, cc.code, cc.name, cc.requirement, cc.year_level,
                          cc.weekly_hours_lecture, cc.exam_duration_minutes, au_course.name,
@@ -194,14 +195,16 @@ class OptimizerService:
                     COUNT(DISTINCT e1.student_id) AS shared
                 FROM enrollment e1
                 JOIN enrollment e2          ON e1.student_id = e2.student_id
+                                           AND e1.term_id = e2.term_id
                 JOIN course_section sa       ON e1.section_id = sa.id
                 JOIN course_section sb       ON e2.section_id = sb.id
                 JOIN student st             ON e1.student_id = st.id
                 JOIN student_group sg        ON st.student_group_id = sg.id
                 WHERE sa.course_id <> sb.course_id
+                  AND e1.term_id = %s::uuid
                 GROUP BY sa.course_id, sb.course_id, sg.academic_unit_id
                 HAVING COUNT(DISTINCT e1.student_id) > 0
-            """)
+            """, [self.term_id])
             conflict_dict = {}
             for r in self._dictfetchall(cur):
                 key_a = f"{r['ca']}|{r['dept_id']}"
@@ -281,6 +284,8 @@ class OptimizerService:
             "slot_starts": slot_starts,
             "slot_ends": slot_ends,
             "session_mode": session_mode,
+            "active_dates": active_dates,
+            "all_start_times": all_start_times,
         }
 
     def solve(self, hard_threshold: int = 5, time_limit: int = None, mip_gap: float = 0.10,
@@ -294,7 +299,8 @@ class OptimizerService:
               day_date_labels: list = None,
               slot_starts_override: list = None,
               slot_ends_override: list = None,
-              session_mode: bool = False) -> dict:
+              session_mode: bool = False,
+              pinned_exams: dict = None) -> dict:
         try:
             import gurobipy as gp
             from gurobipy import GRB, quicksum
@@ -391,13 +397,16 @@ class OptimizerService:
         env.setParam("LogToConsole", 1)
         env.start()
         m = gp.Model("exam_scheduling", env=env)
-        m.setParam("SoftMemLimit", 10)  # stop gracefully at 10 GB instead of being SIGKILL'd
-        m.setParam("NodefileStart", 4)  # spill B&B nodes to disk when tree exceeds 4 GB
+        m.setParam("SoftMemLimit", 9)   # stop gracefully; WSL2 has 11.68 GB available, baseline < 500 MB
+        m.setParam("NodefileStart", 2)  # spill B&B nodes to disk earlier
         t_build_start = time.perf_counter()
+
+        # Cache valid starts per course once — used in every loop below
+        _vs = {c: valid_starts(c) for c in C}
 
         y = {}
         for c in C:
-            for s in valid_starts(c):
+            for s in _vs[c]:
                 y[(c, s)] = m.addVar(vtype=GRB.BINARY, name=f"y[{short[c]},{s}]")
 
         x_start = {}
@@ -406,7 +415,7 @@ class OptimizerService:
             for r in rooms:
                 if not _room_allowed_for_unit(rooms[r], dept_id):
                     continue
-                for s in valid_starts(c):
+                for s in _vs[c]:
                     day_idx = s // slots_per_day
                     wd_str = day_weekday_map.get(day_idx) if day_weekday_map else None
                     if not _room_allowed_on_day(rooms[r], day_idx, wd_str):
@@ -415,13 +424,40 @@ class OptimizerService:
 
         m.update()
 
+        if pinned_exams:
+            for unit_key, slot_idx in pinned_exams.items():
+                if unit_key not in info:
+                    logger.warning(f"pinned_exams: unit_key {unit_key!r} not in courses — skipped")
+                    continue
+                if (unit_key, slot_idx) not in y:
+                    logger.warning(f"pinned_exams: slot {slot_idx} invalid for {unit_key!r} — skipped")
+                    continue
+                y[(unit_key, slot_idx)].lb = 1
+                logger.info(f"Pinned {unit_key!r} → slot {slot_idx}")
+
+        # Precompute slot-coverage maps — built once, O(1) lookup in all constraint loops
+        # _cov[c][t]  = list of y-vars for course c that cover time slot t
+        # _x_cov[r][t] = list of x_start vars for room r occupied at time slot t
+        _cov = defaultdict(lambda: defaultdict(list))
         for c in C:
-            m.addConstr(quicksum(y[(c, s)] for s in valid_starts(c)) == 1,
+            dur = info[c]["duration"]
+            for s in _vs[c]:
+                for t in range(s, s + dur):
+                    _cov[c][t].append(y[(c, s)])
+
+        _x_cov = defaultdict(lambda: defaultdict(list))
+        for (c, r, s), var in x_start.items():
+            dur = info[c]["duration"]
+            for t in range(s, s + dur):
+                _x_cov[r][t].append(var)
+
+        for c in C:
+            m.addConstr(quicksum(y[(c, s)] for s in _vs[c]) == 1,
                         name=f"one_start[{short[c]}]")
 
         for c in C:
             enrolled = info[c]["enrolled_count"]
-            for s in valid_starts(c):
+            for s in _vs[c]:
                 m.addConstr(
                     quicksum(x_start[(c, r, s)] * rooms[r]["capacity"]
                              for r in rooms if (c, r, s) in x_start) >= enrolled * y[(c, s)],
@@ -431,18 +467,10 @@ class OptimizerService:
                         m.addConstr(x_start[(c, r, s)] <= y[(c, s)],
                                     name=f"link[{short[c]},{r},{s}]")
 
-        def v_expr(c, t):
-            dur = info[c]["duration"]
-            return quicksum(y[(c, s)] for s in valid_starts(c) if s <= t < s + dur)
-
         for r in rooms:
             for t in range(n_slots):
-                occupied = quicksum(
-                    x_start[(c, r, s)] for c in C
-                    for s in valid_starts(c)
-                    if s <= t < s + info[c]["duration"] and (c, r, s) in x_start)
-                if occupied.size() > 0:
-                    m.addConstr(occupied <= 1, name=f"room_busy[{r},{t}]")
+                if _x_cov[r][t]:
+                    m.addConstr(quicksum(_x_cov[r][t]) <= 1, name=f"room_busy[{r},{t}]")
 
         minimize_rooms_used = quicksum(x_start.values()) * 0.01
 
@@ -455,7 +483,10 @@ class OptimizerService:
             pair = (min(ua, ub), max(ua, ub))
             hard_pairs.add(pair)
             for t in range(n_slots):
-                m.addConstr(v_expr(ua, t) + v_expr(ub, t) <= 1,
+                ov_a, ov_b = _cov[ua][t], _cov[ub][t]
+                if not ov_a or not ov_b:
+                    continue
+                m.addConstr(quicksum(ov_a) + quicksum(ov_b) <= 1,
                             name=f"hard[{short[ua]}_{short[ub]}_{t}]")
 
         if no_back_to_back:
@@ -501,11 +532,14 @@ class OptimizerService:
             w = base * year_diff_factor.get(abs(yr_a - yr_b), 0.5) * (shared / hard_threshold)
 
             for t in range(n_slots):
+                ov_a, ov_b = _cov[ua][t], _cov[ub][t]
+                if not ov_a or not ov_b:
+                    continue
                 z = m.addVar(vtype=GRB.BINARY, name=f"z[{short[ua]},{short[ub]},{t}]")
-                m.addConstr(z >= v_expr(ua, t) + v_expr(ub, t) - 1)
+                m.addConstr(z >= quicksum(ov_a) + quicksum(ov_b) - 1)
                 desc = f"{info[ua]['code']} ve {info[ub]['code']} dersleri çakışıyor ({shared} ortak öğrenci)."
                 conflict_vars.append({
-                    "var": z, "weight": w, "ua": ua, "ub": ub, "t": t, 
+                    "var": z, "weight": w, "ua": ua, "ub": ub, "t": t,
                     "shared": shared, "desc": desc, "type": "OVERLAP"
                 })
 
@@ -517,13 +551,13 @@ class OptimizerService:
             if len(group_courses) < 2: continue
             for d in range(exam_days):
                 # z_day is 1 if >1 exam in day d for this group
-                active_days = [quicksum(y[(c, s)] for s in valid_starts(c) if s // slots_per_day == d)
+                active_days = [quicksum(y[(c, s)] for s in _vs[c] if s // slots_per_day == d)
                               for c in group_courses]
                 if not active_days: continue
                 
-                z_day = m.addVar(vtype=GRB.INTEGER, name=f"z_day[{dept[:5]},{year},{d}]")
+                z_day = m.addVar(vtype=GRB.INTEGER, lb=0, ub=len(group_courses) - 1,
+                                 name=f"z_day[{dept[:5]},{year},{d}]")
                 m.addConstr(z_day >= quicksum(active_days) - 1)
-                m.addConstr(z_day >= 0)
                 
                 desc = f"{dept} {year}. Sınıf öğrencilerinin aynı gün ({day_labels[d]}) birden fazla sınavı var."
                 daily_spread_vars.append({
@@ -540,9 +574,7 @@ class OptimizerService:
                     continue
                 weight = effective_weights.get(yr, year_order_weight)
                 preferred_start, preferred_end = year_band[yr]
-                for s in valid_starts(c):
-                    if (c, s) not in y:  # defensive: y always contains every valid_start
-                        continue
+                for s in _vs[c]:
                     if not (preferred_start <= s // slots_per_day < preferred_end):
                         year_order_terms.append(weight * y[(c, s)])
 
@@ -573,7 +605,7 @@ class OptimizerService:
         schedule = []
         for c in info:
             dur = info[c]["duration"]
-            slots_valid = [s for s in range(n_slots) if (c, s) in y and y[(c, s)].X > 0.5]
+            slots_valid = [s for s in _vs[c] if y[(c, s)].X > 0.5]
             if not slots_valid:
                 continue
             start_s = slots_valid[0]

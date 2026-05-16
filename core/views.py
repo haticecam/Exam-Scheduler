@@ -216,12 +216,12 @@ class CourseSectionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         from django.db.models import Count, Exists, OuterRef, Value, BooleanField
         from .models import ExamPeriodSectionExclusion
-        qs = (
-            CourseSection.objects
-            .select_related('course', 'course__academic_unit')
-            .annotate(enrollment_count=Count('enrollments'))
-            .filter(enrollment_count__gt=0)
+        include_empty = self.request.query_params.get('include_empty') == 'true'
+        qs = CourseSection.objects.select_related('course', 'course__academic_unit').annotate(
+            enrollment_count=Count('enrollments')
         )
+        if not include_empty:
+            qs = qs.filter(enrollment_count__gt=0)
         term_id = self.request.query_params.get('term_id')
         if term_id:
             qs = qs.filter(term_id=term_id)
