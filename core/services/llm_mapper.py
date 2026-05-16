@@ -103,8 +103,19 @@ PARAMETER_MAPPING_FUNCTION = {
 }
 
 
-def _build_system_prompt(current_params: dict = None) -> str:
+def _build_system_prompt(current_params: dict = None, department_names: list = None) -> str:
     library_context = generate_llm_context()
+
+    dept_context = ""
+    if department_names:
+        dept_list = "\n".join(f"  - {name}" for name in department_names)
+        dept_context = (
+            "\n\n## Available Department Names\n"
+            "When setting SCOPE_DEPT_NO_BACK_TO_BACK or any other department-specific "
+            "parameter, you MUST use one of these exact names as the 'department' value "
+            "(copy it character-for-character, including Turkish characters):\n\n"
+            f"{dept_list}\n"
+        )
 
     current_state = ""
     if current_params:
@@ -139,6 +150,7 @@ CRITICAL RULES:
    changes in this case — return an empty changes array.
 
 {library_context}
+{dept_context}
 {current_state}
 
 When the user gives you their preferences, call the set_scheduling_parameters
@@ -165,6 +177,7 @@ class LLMMapperService:
         user_input: str,
         current_params: dict = None,
         conversation_history: list = None,
+        department_names: list = None,
     ) -> dict:
         """
         Take natural language input and return validated parameter changes.
@@ -182,7 +195,7 @@ class LLMMapperService:
                 "error": None or "error message"
             }
         """
-        system_prompt = _build_system_prompt(current_params)
+        system_prompt = _build_system_prompt(current_params, department_names)
 
         messages = [{"role": "system", "content": system_prompt}]
         if conversation_history:

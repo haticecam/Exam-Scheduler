@@ -3,6 +3,12 @@ import React, { useState, useCallback } from "react";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
 import { Card, SL, Spinner, ErrorBox, DataTable, DataRow, DataCell, InfoBox } from "@/components/ui";
+import {
+  groupExamDurationMinutes,
+  intervalsOverlap,
+  timeStringToMinutes,
+  type DurationInputs,
+} from "@/lib/examDuration";
 
 type SimGroup = {
   id: string;
@@ -11,7 +17,14 @@ type SimGroup = {
   slot_date: string | null;
   slot_start_time: string | null;
   slot_end_time: string | null;
-  courses: { course_id: string; code: string; name: string; year_level: number | null }[];
+  courses: {
+    course_id: string;
+    code: string;
+    name: string;
+    year_level: number | null;
+    exam_duration_minutes: number | null;
+    weekly_hours_lecture: number | null;
+  }[];
 };
 
 type ExamDateSlot = {
@@ -55,6 +68,17 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   );
   const slots: ExamDateSlot[] = slotsData || [];
 
+  const { data: periodData } = useFetch(
+    periodId ? `/exam-periods/${periodId}/` : "",
+    [periodId]
+  );
+  const sessionMode: boolean = (periodData?.config?.slot_mode === "session");
+  const slotDurationMinutes: number = (() => {
+    if (slots.length === 0) return 30;
+    const s = slots[0];
+    return timeStringToMinutes(s.end_time) - timeStringToMinutes(s.start_time);
+  })();
+
   const { data: sectionsData, loading: sectionsLoading } = useFetch(
     termId && periodId
       ? `/course-sections/?term_id=${termId}&exam_period_id=${periodId}&include_empty=true`
@@ -71,16 +95,40 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const [filterType, setFilterType] = useState("Tümü");
   const [search, setSearch] = useState("");
 
-  const filtered = sections.filter((s: any) => {
-    if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
-    if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
-    if (filterType !== "Tümü" && s.requirement !== filterType) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!s.course_name?.toLowerCase().includes(q) && !s.course_code?.toLowerCase().includes(q)) return false;
+  // A course code is only a sensible candidate for a simultaneous-exam group
+  // when it exists under 2+ different departments. Exclusions don't count.
+  const duplicateCodes = React.useMemo(() => {
+    const byCode = new Map<string, Set<string>>();
+    for (const s of sections as any[]) {
+      if (s.excluded_from_optimization) continue;
+      if (!s.course_code || !s.academic_unit_id) continue;
+      let depts = byCode.get(s.course_code);
+      if (!depts) { depts = new Set(); byCode.set(s.course_code, depts); }
+      depts.add(String(s.academic_unit_id));
     }
-    return true;
-  });
+    const out = new Set<string>();
+    for (const [code, depts] of byCode) {
+      if (depts.size >= 2) out.add(code);
+    }
+    return out;
+  }, [sections]);
+
+  const filtered = sections
+    .filter((s: any) => {
+      if (s.excluded_from_optimization) return false;
+      if (!duplicateCodes.has(s.course_code)) return false;
+      if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
+      if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
+      if (filterType !== "Tümü" && s.requirement !== filterType) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!s.course_name?.toLowerCase().includes(q) && !s.course_code?.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    })
+    .sort((a: any, b: any) =>
+      String(a.course_code ?? "").localeCompare(String(b.course_code ?? ""))
+    );
 
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const toggleCheck = (courseId: string) =>
@@ -99,6 +147,107 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const times = Array.from(new Set(slots.map(s => s.start_time))).sort();
   const slotMap: Record<string, ExamDateSlot> = {};
   slots.forEach(s => { slotMap[`${s.date}|${s.start_time}`] = s; });
+
+  const newGroupCourses: DurationInputs[] = React.useMemo(() => {
+    return sections
+      .filter((s: any) => checked.has(String(s.course_id ?? s.id)))
+      .map((s: any) => ({
+        weekly_hours_lecture: s.weekly_hours_lecture ?? null,
+        exam_duration_minutes: s.exam_duration_minutes ?? null,
+      }));
+  }, [sections, checked]);
+
+  const newGroupDurationMinutes = React.useMemo(
+    () => groupExamDurationMinutes(newGroupCourses, slotDurationMinutes, sessionMode),
+    [newGroupCourses, slotDurationMinutes, sessionMode],
+  );
+
+  type PinnedWindow = {
+    groupLabel: string;
+    startMin: number;
+    endMin: number;
+    codes: string[];
+  };
+
+  const pinnedWindowsByDate: Record<string, PinnedWindow[]> = React.useMemo(() => {
+    const out: Record<string, PinnedWindow[]> = {};
+    for (const g of groups) {
+      if (!g.slot_date || !g.slot_start_time) continue;
+      const courses: DurationInputs[] = g.courses.map(c => ({
+        weekly_hours_lecture: c.weekly_hours_lecture,
+        exam_duration_minutes: c.exam_duration_minutes,
+      }));
+      const dur = groupExamDurationMinutes(courses, slotDurationMinutes, sessionMode);
+      if (dur <= 0) continue;
+      const start = timeStringToMinutes(g.slot_start_time);
+      (out[g.slot_date] ||= []).push({
+        groupLabel: g.label,
+        startMin: start,
+        endMin: start + dur,
+        // Dedupe: same course code can appear once per department in the group.
+        codes: Array.from(new Set(g.courses.map(c => c.code))),
+      });
+    }
+    return out;
+  }, [groups, slotDurationMinutes, sessionMode]);
+
+  // Per-cell merge info: consecutive conflict cells with the same group label
+  // are collapsed into one rowSpan'd start cell. rowSpan === 0 means "skip
+  // rendering this cell, it's covered by the merged start above".
+  type ConflictCellInfo = { conflict: PinnedWindow; rowSpan: number };
+  const conflictCells: Map<string, ConflictCellInfo> = React.useMemo(() => {
+    const result = new Map<string, ConflictCellInfo>();
+    if (newGroupDurationMinutes <= 0) return result;
+
+    for (const date of dates) {
+      const windows = pinnedWindowsByDate[date] || [];
+      let runStartKey: string | null = null;
+      let runLength = 0;
+      let runLabel: string | null = null;
+
+      const closeRun = () => {
+        if (runStartKey) {
+          const startInfo = result.get(runStartKey);
+          if (startInfo) startInfo.rowSpan = runLength;
+        }
+        runStartKey = null;
+        runLength = 0;
+        runLabel = null;
+      };
+
+      for (const time of times) {
+        const slot = slotMap[`${date}|${time}`];
+        const key = `${date}|${time}`;
+        let conflict: PinnedWindow | null = null;
+        if (slot && !slot.is_blocked) {
+          const sStart = timeStringToMinutes(slot.start_time);
+          const sEnd = sStart + newGroupDurationMinutes;
+          for (const w of windows) {
+            if (intervalsOverlap(sStart, sEnd, w.startMin, w.endMin)) {
+              conflict = w;
+              break;
+            }
+          }
+        }
+
+        if (conflict && conflict.groupLabel === runLabel) {
+          // Continuation cell: increment run, mark for skip-render.
+          runLength += 1;
+          result.set(key, { conflict, rowSpan: 0 });
+        } else {
+          closeRun();
+          if (conflict) {
+            runStartKey = key;
+            runLength = 1;
+            runLabel = conflict.groupLabel;
+            result.set(key, { conflict, rowSpan: 1 });
+          }
+        }
+      }
+      closeRun();
+    }
+    return result;
+  }, [dates, times, slotMap, pinnedWindowsByDate, newGroupDurationMinutes]);
 
   const weekdayLabel = (dateStr: string) => {
     const d = new Date(dateStr + "T00:00:00");
@@ -129,7 +278,15 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
       setShowModal(false);
       refetchGroups();
     } catch (e: any) {
-      setSaveErr(e.data ? JSON.stringify(e.data) : e.message || "Kayıt başarısız.");
+      const msg =
+        e?.data?.slot
+          ? (Array.isArray(e.data.slot) ? e.data.slot.join(" ") : String(e.data.slot))
+          : e?.data?.detail
+            ? String(e.data.detail)
+            : e?.data
+              ? JSON.stringify(e.data)
+              : e?.message || "Kayıt başarısız.";
+      setSaveErr(msg);
     } finally {
       setSaving(false);
     }
@@ -270,7 +427,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
               )}
               {!sectionsLoading && filtered.length === 0 && (
                 <DataRow>
-                  <DataCell colSpan={6}><InfoBox msg="Uygun ders bulunamadı." /></DataCell>
+                  <DataCell colSpan={6}><InfoBox msg="Bölümler arası aynı koda sahip ders bulunamadı." /></DataCell>
                 </DataRow>
               )}
               {filtered.map((sec: any) => {
@@ -394,26 +551,61 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                           <td key={date} style={{ borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }} />
                         );
                         const blocked = slot.is_blocked;
+                        const cellInfo = conflictCells.get(`${date}|${time}`);
+                        // Continuation of a merged conflict run — fully covered by the
+                        // rowSpan'd start cell above; do not emit a <td>.
+                        if (cellInfo && cellInfo.rowSpan === 0) return null;
+
+                        const conflict = cellInfo?.conflict ?? null;
+                        const rowSpan = cellInfo?.rowSpan ?? 1;
+                        const isLocked = blocked || !!conflict;
+                        const bg = blocked
+                          ? `color-mix(in srgb, ${C.red} 16%, transparent)`
+                          : conflict
+                            ? `color-mix(in srgb, ${C.red} 12%, transparent)`
+                            : `color-mix(in srgb, ${C.green} 12%, transparent)`;
+                        const tooltip = blocked
+                          ? "Engellenmiş — seçilemez"
+                          : conflict
+                            ? `${conflict.groupLabel} — bu saat aralığında başka eş zamanlı sınav var: ${conflict.codes.join(", ")}`
+                            : "Tıkla: bu saate ata";
+
                         return (
                           <td
                             key={date}
-                            onClick={() => !blocked && !saving && pickSlot(slot)}
-                            title={blocked ? "Engellenmiş — seçilemez" : "Tıkla: bu saate ata"}
+                            rowSpan={rowSpan}
+                            onClick={() => !isLocked && !saving && pickSlot(slot)}
+                            title={tooltip}
                             style={{
                               borderBottom: `1px solid ${C.border}`,
                               borderRight: `1px solid ${C.border}`,
-                              background: blocked
-                                ? `color-mix(in srgb, ${C.red} 16%, transparent)`
-                                : `color-mix(in srgb, ${C.green} 12%, transparent)`,
-                              cursor: blocked ? "not-allowed" : saving ? "wait" : "pointer",
-                              padding: "8px 10px",
+                              background: bg,
+                              cursor: isLocked ? "not-allowed" : saving ? "wait" : "pointer",
+                              padding: conflict ? "4px 6px" : "8px 10px",
                               textAlign: "center",
+                              verticalAlign: "middle",
                               transition: "background 120ms ease-out",
                               userSelect: "none",
                               opacity: saving ? 0.6 : 1,
+                              minWidth: 90,
                             }}
                           >
-                            <span style={{ fontSize: 14 }}>{blocked ? "✕" : "✓"}</span>
+                            {blocked ? (
+                              <span style={{ fontSize: 14 }}>✕</span>
+                            ) : conflict ? (
+                              <div style={{ ...mono, fontSize: 10, lineHeight: 1.25, color: C.red, fontWeight: 600 }}>
+                                {conflict.codes.slice(0, 3).map(code => (
+                                  <div key={code} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    {code}
+                                  </div>
+                                ))}
+                                {conflict.codes.length > 3 && (
+                                  <div style={{ opacity: 0.7 }}>+{conflict.codes.length - 3}</div>
+                                )}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 14 }}>✓</span>
+                            )}
                           </td>
                         );
                       })}

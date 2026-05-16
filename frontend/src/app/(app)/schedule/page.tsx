@@ -82,10 +82,15 @@ function ScheduleContent() {
   });
 
   const sortedDays = Object.keys(grouped).sort((a: string, b: string) => {
+    // day label format: "Wed 04/06" (dd/mm) — sort by actual calendar date
+    const parseDdMm = (s: string) => {
+      const m = s.match(/(\d{2})\/(\d{2})/);
+      return m ? parseInt(m[2]) * 100 + parseInt(m[1]) : null;
+    };
+    const nA = parseDdMm(a), nB = parseDdMm(b);
+    if (nA !== null && nB !== null) return nA - nB;
     const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const idxA = order.findIndex(o => a.includes(o));
-    const idxB = order.findIndex(o => b.includes(o));
-    return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+    return order.findIndex(o => a.includes(o)) - order.findIndex(o => b.includes(o));
   });
 
   const handlePrint = () => {

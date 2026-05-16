@@ -13,6 +13,7 @@ const IIS_LABELS: Record<string, string> = {
 };
 
 type LLMChange = { code: string; value: unknown; reason: string };
+type AppliedChange = LLMChange & { checked: boolean };
 type LLMResult = {
   success: boolean;
   is_scheduling_request?: boolean;
@@ -32,6 +33,12 @@ type DiagnoseResult = {
   combined_recommendation: string;
   error?: string;
 };
+
+const CALENDAR_OVERRIDDEN_CODES = new Set([
+  "PARAM_EXAM_DAYS",
+  "PARAM_SLOTS_PER_DAY",
+  "PARAM_START_HOUR",
+]);
 
 export default function OptimizerPage() {
   const router = useRouter();
@@ -66,7 +73,16 @@ export default function OptimizerPage() {
   const [llmErr, setLlmErr] = useState("");
   const [diagSt, setDiagSt] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [diagResult, setDiagResult] = useState<DiagnoseResult | null>(null);
-  const [pendingProposedParams, setPendingProposedParams] = useState<Record<string, unknown> | null>(null);
+  const [appliedChanges, setAppliedChanges] = useState<AppliedChange[] | null>(null);
+  const [pendingKwargs, setPendingKwargs] = useState<{
+    optimizer_kwargs: Record<string, unknown>;
+    proposed_params: Record<string, unknown> | null;
+  } | null>(null);
+
+  const isCalendarOverridden = useCallback(
+    (code: string) => Boolean(examPeriodId) && CALENDAR_OVERRIDDEN_CODES.has(code),
+    [examPeriodId],
+  );
 
   const stopPoll = () => { if (timerRef.current) clearInterval(timerRef.current); };
 
@@ -98,10 +114,43 @@ export default function OptimizerPage() {
     if (!params.term_id) { setSubErr("Lütfen bir dönem seçin."); return; }
     setRunSt("submitting"); setSubErr(""); setIis([]); setPollSnap(null);
     try {
-      const { name, ...rest } = params;
+      // Build extra params from checklist (only checked items)
+      let extraParams: Partial<typeof params> = {};
+      let resolvedProposedParams: Record<string, unknown> | null = null;
+
+      if (appliedChanges && pendingKwargs) {
+        const checkedCodes = new Set(
+          appliedChanges
+            .filter(c => c.checked && !isCalendarOverridden(c.code))
+            .map(c => c.code)
+        );
+        const kw = pendingKwargs.optimizer_kwargs as any;
+
+        if (checkedCodes.has("PARAM_EXAM_DAYS")           && kw.exam_days           !== undefined) extraParams.exam_days           = kw.exam_days;
+        if (checkedCodes.has("PARAM_SLOTS_PER_DAY")       && kw.slots_per_day       !== undefined) extraParams.slots_per_day       = kw.slots_per_day;
+        if (checkedCodes.has("PARAM_START_HOUR")          && kw.start_hour          !== undefined) extraParams.start_hour          = kw.start_hour;
+        if (checkedCodes.has("PARAM_HARD_THRESHOLD")      && kw.hard_threshold      !== undefined) extraParams.hard_threshold      = kw.hard_threshold;
+        if (checkedCodes.has("PARAM_TIME_LIMIT")          && kw.time_limit          !== undefined) extraParams.time_limit          = kw.time_limit;
+        if (checkedCodes.has("PARAM_MIP_GAP")             && kw.mip_gap             !== undefined) extraParams.mip_gap             = kw.mip_gap;
+        if (checkedCodes.has("PARAM_NO_BACK_TO_BACK")     && kw.no_back_to_back     !== undefined) extraParams.no_back_to_back     = kw.no_back_to_back;
+        if (checkedCodes.has("PARAM_YEAR_ORDER_WEIGHT")   && kw.year_order_weight   !== undefined) extraParams.year_order_weight   = kw.year_order_weight;
+        if (checkedCodes.has("PARAM_YEAR_ORDER_SEQUENCE") && kw.year_order_sequence !== undefined) extraParams.year_order_sequence = kw.year_order_sequence;
+        if (checkedCodes.has("PARAM_YEAR_ORDER_WEIGHTS")  && kw.year_order_weights  !== undefined) extraParams.year_order_weights  = kw.year_order_weights;
+
+        const rawProposed = pendingKwargs.proposed_params ?? {};
+        const filteredProposed = Object.fromEntries(
+          Object.entries(rawProposed).filter(([key]) => checkedCodes.has(key))
+        );
+        resolvedProposedParams = Object.keys(filteredProposed).length > 0 ? filteredProposed : null;
+      }
+
+      setAppliedChanges(null);
+      setPendingKwargs(null);
+
+      const { name, ...rest } = { ...params, ...extraParams };
       const payload = name ? { ...rest, name } : rest;
       const finalPayload = {
-        ...(pendingProposedParams ? { ...payload, proposed_params: pendingProposedParams } : payload),
+        ...(resolvedProposedParams ? { ...payload, proposed_params: resolvedProposedParams } : payload),
         ...(examPeriodId ? { exam_period_id: examPeriodId } : {}),
       };
       const res = await api.post("/optimize/run/", finalPayload);
@@ -122,6 +171,7 @@ export default function OptimizerPage() {
   const reset = () => {
     stopPoll(); setRunSt("idle"); setSolId(null); setPollSnap(null);
     setIis([]); setSubErr(""); setDiagSt("idle"); setDiagResult(null);
+    setAppliedChanges(null); setPendingKwargs(null);
   };
 
   // LLM: configure
@@ -138,25 +188,17 @@ export default function OptimizerPage() {
     }
   };
 
-  // LLM: apply proposed params to the form
-  const applyToForm = () => {
+  // LLM: stage changes into checklist (nothing written to params yet)
+  const stageChanges = () => {
     if (!llmResult?.optimizer_kwargs) return;
-    setPendingProposedParams(llmResult.proposed_params ?? null);
-    setExamPeriodId("");  // LLM config uses manual params
-    const kw = llmResult.optimizer_kwargs as any;
-    setParams(p => ({
-      ...p,
-      ...(kw.hard_threshold !== undefined  && { hard_threshold: kw.hard_threshold }),
-      ...(kw.exam_days      !== undefined  && { exam_days: kw.exam_days }),
-      ...(kw.slots_per_day  !== undefined  && { slots_per_day: kw.slots_per_day }),
-      ...(kw.start_hour     !== undefined  && { start_hour: kw.start_hour }),
-      ...(kw.time_limit     !== undefined  && { time_limit: kw.time_limit }),
-      ...(kw.mip_gap        !== undefined  && { mip_gap: kw.mip_gap }),
-      ...(kw.no_back_to_back  !== undefined && { no_back_to_back: kw.no_back_to_back }),
-      ...(kw.year_order_weight  !== undefined && { year_order_weight: kw.year_order_weight }),
-      ...(kw.year_order_sequence !== undefined && { year_order_sequence: kw.year_order_sequence }),
-      ...(kw.year_order_weights  !== undefined && { year_order_weights: kw.year_order_weights }),
-    }));
+    setAppliedChanges(llmResult.changes.map(ch => ({ ...ch, checked: true })));
+    setPendingKwargs({
+      optimizer_kwargs: llmResult.optimizer_kwargs,
+      proposed_params: llmResult.proposed_params ?? null,
+    });
+    setExamPeriodId("");
+    setLlmSt("idle");
+    setLlmResult(null);
   };
 
 
@@ -351,7 +393,7 @@ export default function OptimizerPage() {
             </div>
             <button
               type="button"
-              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
+              onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
               style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 10px", cursor: "pointer", ...mono, fontSize: 11, flexShrink: 0 }}
             >
               Kapat
@@ -401,14 +443,14 @@ export default function OptimizerPage() {
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button
                 type="button"
-                onClick={applyToForm}
+                onClick={stageChanges}
                 style={{ background: "var(--surface)", color: C.cyan, border: `1px solid color-mix(in srgb, ${C.cyan} 40%, transparent)`, borderRadius: 6, padding: "8px 16px", cursor: "pointer", ...mono, fontSize: 12, fontWeight: 600 }}
               >
                 Forma Uygula
               </button>
               <button
                 type="button"
-                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); setPendingProposedParams(null); }}
+                onClick={() => { setLlmSt("idle"); setLlmResult(null); setLlmMessage(""); }}
                 style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 12px", cursor: "pointer", ...mono, fontSize: 12 }}
               >
                 Kapat
@@ -579,6 +621,75 @@ export default function OptimizerPage() {
           {submitErr && !isRunning && <ErrorBox msg={submitErr} />}
         </Card>
       </div>
+
+      {/* ── LLM changes checklist ─────────────────────────────── */}
+      {appliedChanges && (
+        <div style={{ marginTop: 20, border: `1px solid color-mix(in srgb, ${C.cyan} 30%, transparent)`, borderRadius: 8, overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: C.cyanSoft, borderBottom: `1px solid color-mix(in srgb, ${C.cyan} 20%, transparent)` }}>
+            <span style={{ fontSize: 10, color: C.cyan, ...mono, letterSpacing: "0.08em", fontWeight: 700 }}>UYGULANACAK DEĞİŞİKLİKLER</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 11, color: C.textMuted, ...mono }}>
+                {appliedChanges.filter(c => c.checked && !isCalendarOverridden(c.code)).length}/{appliedChanges.filter(c => !isCalendarOverridden(c.code)).length} seçili
+              </span>
+              <button
+                type="button"
+                onClick={() => { setAppliedChanges(null); setPendingKwargs(null); }}
+                style={{ background: "transparent", color: C.textMuted, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", ...mono, fontSize: 11 }}
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+          {/* Rows */}
+          {appliedChanges.map((ch, i) => {
+            const ignored = isCalendarOverridden(ch.code);
+            return (
+            <div
+              key={i}
+              onClick={ignored ? undefined : () => setAppliedChanges(prev => prev!.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))}
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 14,
+                padding: "14px 16px",
+                borderLeft: `4px solid ${ignored ? C.border : (ch.checked ? C.cyan : C.border)}`,
+                borderBottom: i < appliedChanges.length - 1 ? `1px solid ${C.border}` : "none",
+                background: "var(--surface)",
+                opacity: ignored ? 0.5 : (ch.checked ? 1 : 0.4),
+                cursor: ignored ? "not-allowed" : "pointer",
+                transition: "opacity 140ms ease-out, border-color 140ms ease-out",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={ignored ? false : ch.checked}
+                disabled={ignored}
+                onChange={() => setAppliedChanges(prev => prev!.map((c, j) => j === i ? { ...c, checked: !c.checked } : c))}
+                onClick={e => e.stopPropagation()}
+                style={{ marginTop: 3, accentColor: C.cyan, flexShrink: 0, width: 16, height: 16, cursor: ignored ? "not-allowed" : "pointer" }}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                  <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>
+                    {ch.code}
+                  </span>
+                  <span style={{ fontSize: 12, color: C.text, fontWeight: 600, textDecoration: ignored ? "line-through" : "none" }}>
+                    → {typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}
+                  </span>
+                  {ignored && (
+                    <span style={{ ...mono, fontSize: 10, color: C.amber, background: `color-mix(in srgb, ${C.amber} 12%, transparent)`, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
+                      Takvimden alınıyor — yok sayılır
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>{ch.reason}</div>
+              </div>
+            </div>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ marginTop: 20, display: "flex", gap: 12, alignItems: "center" }}>
         <button
