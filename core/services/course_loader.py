@@ -1,7 +1,6 @@
 import csv
 import io
 import re
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
@@ -22,33 +21,48 @@ class CourseRow:
     is_compulsory: bool
     year_level: int
     weekly_hours: int
+    weekly_hours_lab: int = 0
+    section_number: str = "1"
 
     @staticmethod
-    def from_dict(d: dict) -> "CourseRow":
+    def from_dict(d: dict) -> "Optional[CourseRow]":
         def _int(v: str, default: int = 0) -> int:
             try:
                 return int(str(v).strip())
             except (ValueError, TypeError):
                 return default
 
-        capacity_raw = str(d.get("Capacity", "")).strip()
+        def _get(turkish_key: str, english_key: str, default: str = "") -> str:
+            return str(d.get(turkish_key) or d.get(english_key) or default).strip()
+
+        # Skip inactive rows (Aktif column present and not active)
+        aktif_raw = _get("Aktif", "")
+        if aktif_raw and aktif_raw not in ("1", "True", "true", "__1"):
+            return None
+
+        # Capacity: "107/999" → 107 (enrolled count); plain int also works
+        capacity_raw = _get("Kontenjan", "Capacity")
         try:
-            capacity = int(capacity_raw)
-        except ValueError:
+            capacity = int(capacity_raw.split("/")[0])
+        except (ValueError, AttributeError):
             capacity = None
 
-        mandatory_raw = str(d.get("Mandatory", "")).strip()
+        mandatory_raw = _get("Zor.", "Mandatory")
         is_compulsory = mandatory_raw in ("1", "True", "true", "Yes", "yes", "__1")
 
+        section_number = _get("Şube", "Section", "1") or "1"
+
         return CourseRow(
-            course_name=str(d.get("Course Name", "")).strip(),
-            course_code=str(d.get("Course Code", "")).strip(),
+            course_name=_get("Ders Adı", "Course Name"),
+            course_code=_get("Ders Kodu", "Course Code"),
             capacity=capacity,
-            program=str(d.get("Program", "")).strip(),
-            instructor=str(d.get("Instructor", "")).strip(),
+            program=_get("Program", "Program"),
+            instructor=_get("Öğretim Elemanı", "Instructor"),
             is_compulsory=is_compulsory,
-            year_level=_int(d.get("Year"), default=1),
-            weekly_hours=_int(d.get("T-hours"), default=0),
+            year_level=_int(_get("Sınıf", "Year"), default=1),
+            weekly_hours=_int(_get("T", "T-hours"), default=0),
+            weekly_hours_lab=_int(_get("U", "U-hours"), default=0),
+            section_number=section_number,
         )
 
 def slugify(text: str, max_len: int = 32) -> str:
@@ -82,7 +96,8 @@ def _rows_from_csv_text(file_content: str) -> list:
     else:
         delimiter = ","
     reader = csv.DictReader(lines, delimiter=delimiter)
-    return [CourseRow.from_dict(r) for r in reader if _row_name(r).strip()]
+    rows = [CourseRow.from_dict(r) for r in reader if _row_name(r).strip()]
+    return [r for r in rows if r is not None]
 
 def _rows_from_xlsx_bytes(raw: bytes) -> list:
     import openpyxl
@@ -100,7 +115,9 @@ def _rows_from_xlsx_bytes(raw: bytes) -> list:
         d = {header[i]: (str(row[i]).strip() if i < len(row) and row[i] is not None else "")
              for i in range(len(header))}
         if _row_name(d).strip():
-            result.append(CourseRow.from_dict(d))
+            row = CourseRow.from_dict(d)
+            if row is not None:
+                result.append(row)
     return result
 
 class CourseLoaderService:
@@ -194,30 +211,27 @@ class CourseLoaderService:
                 req = "COMPULSORY" if r.is_compulsory else "ELECTIVE"
                 course, _ = CourseCatalog.objects.get_or_create(
                     organization=org, academic_unit_id=unit_id, code=r.course_code,
-                    defaults={"name": r.course_name, "year_level": r.year_level,
-                              "weekly_hours_lecture": r.weekly_hours, "requirement": req}
+                    defaults={
+                        "name": r.course_name,
+                        "year_level": r.year_level,
+                        "weekly_hours_lecture": r.weekly_hours,
+                        "weekly_hours_lab": r.weekly_hours_lab,
+                        "requirement": req,
+                    }
                 )
                 course_map[key] = course
 
         # 5. Course Sections
-        section_counter = defaultdict(int)
         sections_created = 0
         for r in rows:
             unit_id = unit_map[r.program].id
             course = course_map[(unit_id, r.course_code)]
             instr = instr_map[(unit_id, r.instructor)]
 
-            section_counter[(unit_id, course.id)] += 1
-            n = section_counter[(unit_id, course.id)]
-            if n <= 26:
-                section_label = chr(64 + n)
-            else:
-                section_label = chr(64 + (n - 1) // 26) + chr(64 + (n - 1) % 26 + 1)
-
-            max_enroll = 999 if r.is_compulsory else (r.capacity or 80)
+            max_enroll = r.capacity or (999 if r.is_compulsory else 80)
 
             CourseSection.objects.get_or_create(
-                term=term, course=course, section_code=section_label, instructor=instr,
+                term=term, course=course, section_code=r.section_number, instructor=instr,
                 defaults={"max_enrollment": max_enroll, "version": 1}
             )
             sections_created += 1
