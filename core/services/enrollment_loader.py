@@ -137,6 +137,13 @@ class XlsxEnrollmentLoaderService:
     def _normalize(name: str) -> str:
         return name.strip().rstrip('.,').upper()
 
+    @staticmethod
+    def _find_col_idx(header: list[str], prefix: str) -> int | None:
+        for i, col in enumerate(header):
+            if col == prefix or col.startswith(prefix + '_'):
+                return i
+        return None
+
     def _process_one_file(self, filename: str, file_bytes: bytes, term, org) -> dict:
         import openpyxl
 
@@ -168,12 +175,19 @@ class XlsxEnrollmentLoaderService:
             return {"file": filename, "error": "XLSX file is empty."}
 
         header = [str(c).strip() if c is not None else '' for c in rows[0]]
-        try:
-            idx_student = header.index('Öğrenci No')
-            idx_program = header.index('Program')
-            idx_year    = header.index('Sınıf')
-        except ValueError as exc:
-            return {"file": filename, "error": f"Missing required column: {exc}"}
+        idx_student = self._find_col_idx(header, 'Öğrenci No')
+        idx_program = self._find_col_idx(header, 'Program')
+        idx_year    = self._find_col_idx(header, 'Sınıf')
+        missing = [
+            name for name, idx in [
+                ('Öğrenci No', idx_student),
+                ('Program', idx_program),
+                ('Sınıf', idx_year),
+            ]
+            if idx is None
+        ]
+        if missing:
+            return {"file": filename, "error": f"Missing required column(s): {missing}"}
 
         try:
             with transaction.atomic():

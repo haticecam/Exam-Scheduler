@@ -27,6 +27,7 @@ def make_xlsx(rows: list[list]) -> bytes:
 
 
 HEADER = ['Öğrenci No', 'Program', 'Sınıf', 'Danışman', 'A.Tipi']
+HEADER_SUFFIXED = ['Öğrenci No_14190', 'Adı_14190', 'Soyadı_14190', 'Program_14190', 'Sınıf_14190', 'A.Tipi_14190']
 
 
 def xlsx_file(name: str, rows: list[list]) -> SimpleUploadedFile:
@@ -194,6 +195,27 @@ def test_upload_xlsx_endpoint_missing_files(auth_client, base_data):
         data={'term_id': str(base_data['term'].id)},
     )
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_service_handles_suffixed_column_names(base_data):
+    """Columns named 'Öğrenci No_14190', 'Program_14190', 'Sınıf_14190' are resolved correctly."""
+    # Row order: Öğrenci No, Adı, Soyadı, Program, Sınıf, A.Tipi
+    xlsx_bytes = make_xlsx([
+        HEADER_SUFFIXED,
+        ['STU02665', 'Hürdoğan', 'Bilge', 'BİLGİSAYAR MÜH', 3, 'Zorunlu'],
+        ['STU02314', 'Soykut',   'Ergül', 'BİLGİSAYAR MÜH', 4, 'Zorunlu'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    result = svc.process_files(
+        [('CENG113.xlsx', xlsx_bytes)],
+        str(base_data['term'].id)
+    )
+    assert 'error' not in result
+    file_result = result['results'][0]
+    assert 'error' not in file_result, file_result.get('error')
+    assert file_result['students_created'] == 2
+    assert file_result['enrollments_created'] == 2
 
 
 @pytest.mark.django_db
