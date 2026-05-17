@@ -68,6 +68,22 @@ def test_course_loader_uses_sube_as_section_code(org, active_term):
 
 
 @pytest.mark.django_db
+def test_course_loader_skips_inactive_rows(org, active_term):
+    """Rows with Aktif=__0 must be skipped and not imported."""
+    csv_data = (
+        "Şube;Ders Kodu;Ders Adı;T;U;L;K;AKTS;Sınıf;Kontenjan;Aktif;Zor.;Uyg.;Program;Öğretim Elemanı\n"
+        "1;ACTIVE101;Active Course;3;0;0;0;5;1;50/999;__1;__1;__0;BİLGİSAYAR MÜH.;Dr. ACTIVE\n"
+        "1;INACTIVE101;Inactive Course;3;0;0;0;5;1;50/999;__0;__1;__0;BİLGİSAYAR MÜH.;Dr. INACTIVE\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True, result.get("error")
+    from core.models import CourseCatalog
+    assert CourseCatalog.objects.filter(organization=org, code="ACTIVE101").exists()
+    assert not CourseCatalog.objects.filter(organization=org, code="INACTIVE101").exists()
+
+
+@pytest.mark.django_db
 def test_course_loader_atomic_rollback_on_error(org, active_term):
     """If CourseLoaderService fails midway, no partial data should be committed."""
     csv_data = (
