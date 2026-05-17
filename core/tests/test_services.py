@@ -20,6 +20,70 @@ def active_term(org):
 # --- CourseLoaderService ---
 
 @pytest.mark.django_db
+def test_course_loader_accepts_semicolon_delimiter(org, active_term):
+    """Semicolon-delimited CSVs must be parsed without error."""
+    csv_data = (
+        "Course Code;Course Name;Capacity;Program;Instructor;Mandatory;Year;T-hours\n"
+        "CS101;Intro CS;50;Math;Dr. Smith;1;1;3\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True
+    from core.models import CourseCatalog
+    assert CourseCatalog.objects.filter(organization=org, code="CS101").exists()
+
+@pytest.mark.django_db
+def test_course_loader_accepts_turkish_columns(org, active_term):
+    """Native Turkish semicolon CSV from university system must be parsed correctly."""
+    csv_data = (
+        "Şube;Ders Kodu;Ders Adı;T;U;L;K;AKTS;Sınıf;Kontenjan;Aktif;Zor.;Uyg.;Program;Öğretim Elemanı\n"
+        "1;CENG101;INTRO TO CS;3;0;0;0;5;1;143/999;__1;__1;__0;BİLGİSAYAR MÜH.;Prof.Dr. ALI YILMAZ\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True, result.get("error")
+    from core.models import CourseCatalog, CourseSection
+    course = CourseCatalog.objects.get(organization=org, code="CENG101")
+    assert course.year_level == 1
+    assert course.weekly_hours_lecture == 3
+    assert course.weekly_hours_lab == 0
+    assert course.requirement == "COMPULSORY"
+    section = CourseSection.objects.get(term=active_term, course=course)
+    assert section.section_code == "1"
+
+
+@pytest.mark.django_db
+def test_course_loader_uses_sube_as_section_code(org, active_term):
+    """Section code must come from Şube column, not auto-generated letters."""
+    csv_data = (
+        "Şube;Ders Kodu;Ders Adı;T;U;L;K;AKTS;Sınıf;Kontenjan;Aktif;Zor.;Uyg.;Program;Öğretim Elemanı\n"
+        "2;CS201;Data Structures;3;0;0;0;5;2;80/999;__1;__1;__0;BİLGİSAYAR MÜH.;Dr. MEHMET KAYA\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True, result.get("error")
+    from core.models import CourseSection
+    section = CourseSection.objects.get(term=active_term, course__code="CS201")
+    assert section.section_code == "2"
+
+
+@pytest.mark.django_db
+def test_course_loader_skips_inactive_rows(org, active_term):
+    """Rows with Aktif=__0 must be skipped and not imported."""
+    csv_data = (
+        "Şube;Ders Kodu;Ders Adı;T;U;L;K;AKTS;Sınıf;Kontenjan;Aktif;Zor.;Uyg.;Program;Öğretim Elemanı\n"
+        "1;ACTIVE101;Active Course;3;0;0;0;5;1;50/999;__1;__1;__0;BİLGİSAYAR MÜH.;Dr. ACTIVE\n"
+        "1;INACTIVE101;Inactive Course;3;0;0;0;5;1;50/999;__0;__1;__0;BİLGİSAYAR MÜH.;Dr. INACTIVE\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True, result.get("error")
+    from core.models import CourseCatalog
+    assert CourseCatalog.objects.filter(organization=org, code="ACTIVE101").exists()
+    assert not CourseCatalog.objects.filter(organization=org, code="INACTIVE101").exists()
+
+
+@pytest.mark.django_db
 def test_course_loader_atomic_rollback_on_error(org, active_term):
     """If CourseLoaderService fails midway, no partial data should be committed."""
     csv_data = (

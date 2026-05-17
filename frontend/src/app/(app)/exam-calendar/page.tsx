@@ -285,6 +285,24 @@ export default function ExamCalendarPage() {
     setSearch("");
   }, [optTermId, optPeriodId]);
 
+  const GRAD_PROJECT_KEYWORDS = ["graduation project", "graduation"];
+  const INDUSTRIAL_PRACTICE_KEYWORDS = ["industrial practice", "engineering application", "on site", "summer training", "summer practice"];
+
+  const isGradProject = (s: any) => {
+    const name = (s.course_name ?? "").toLowerCase();
+    return GRAD_PROJECT_KEYWORDS.some(kw => name.includes(kw));
+  };
+
+  const isIndustrialPractice = (s: any) => {
+    const name = (s.course_name ?? "").toLowerCase();
+    return INDUSTRIAL_PRACTICE_KEYWORDS.some(kw => name.includes(kw));
+  };
+
+  const gradSections = sections.filter(isGradProject);
+  const industrialSections = sections.filter(isIndustrialPractice);
+  const allGradExcluded = gradSections.length > 0 && gradSections.every((s: any) => s.excluded_from_optimization);
+  const allIndustrialExcluded = industrialSections.length > 0 && industrialSections.every((s: any) => s.excluded_from_optimization);
+
   const filteredSections = sections.filter((s: any) => {
     if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
     if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
@@ -297,6 +315,7 @@ export default function ExamCalendarPage() {
   });
 
   const [toggleError, setToggleError] = useState<string | null>(null);
+  const [bulkLoading, setBulkLoading] = useState<string | null>(null);
 
   const toggleExclusion = async (section: any) => {
     if (!optPeriodId) return;
@@ -311,6 +330,26 @@ export default function ExamCalendarPage() {
       setToggleError(err.message || "Hariç tutma değiştirilemedi.");
     }
     setTogglingId(null);
+  };
+
+  const bulkToggle = async (matchingSections: any[], allExcluded: boolean, key: string) => {
+    if (!optPeriodId) return;
+    setBulkLoading(key);
+    setToggleError(null);
+    const targets = allExcluded
+      ? matchingSections
+      : matchingSections.filter((s: any) => !s.excluded_from_optimization);
+    try {
+      await Promise.all(
+        targets.map((s: any) =>
+          api.post(`/exam-periods/${optPeriodId}/toggle-exclusion/`, { section_id: s.id })
+        )
+      );
+      refetchSections();
+    } catch (err: any) {
+      setToggleError(err.message || "Hariç tutma değiştirilemedi.");
+    }
+    setBulkLoading(null);
   };
 
   const [editCourse, setEditCourse] = useState<any>(null);
@@ -730,37 +769,69 @@ export default function ExamCalendarPage() {
             <p style={{ color: "red", fontSize: 12, margin: "0 0 8px" }}>{toggleError}</p>
           )}
           {optTermId && optPeriodId && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 150px 1fr", gap: 12 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>BÖLÜM</label>
-                <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={optSelectStyle}>
-                  <option value="Tümü">Tümü</option>
-                  {depts.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                  <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>BÖLÜM</label>
+                  <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={optSelectStyle}>
+                    <option value="Tümü">Tümü</option>
+                    {depts.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: "0 1 120px", minWidth: 100 }}>
+                  <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>YIL</label>
+                  <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={optSelectStyle}>
+                    <option value="Tümü">Tümü</option>
+                    {[1, 2, 3, 4].map(y => <option key={y} value={String(y)}>{y}. Sınıf</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: "0 1 160px", minWidth: 130 }}>
+                  <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>TÜR</label>
+                  <select value={filterType} onChange={e => setFilterType(e.target.value)} style={optSelectStyle}>
+                    <option value="Tümü">Tümü</option>
+                    <option value="COMPULSORY">Zorunlu</option>
+                    <option value="ELECTIVE">Seçmeli</option>
+                  </select>
+                </div>
+                <div style={{ flex: "1 1 200px", minWidth: 0 }}>
+                  <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>ARAMA</label>
+                  <input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Ders adı veya kodu..."
+                    style={optSelectStyle}
+                  />
+                </div>
               </div>
-              <div>
-                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>YIL</label>
-                <select value={filterYear} onChange={e => setFilterYear(e.target.value)} style={optSelectStyle}>
-                  <option value="Tümü">Tümü</option>
-                  {[1, 2, 3, 4].map(y => <option key={y} value={String(y)}>{y}. Sınıf</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>TÜR</label>
-                <select value={filterType} onChange={e => setFilterType(e.target.value)} style={optSelectStyle}>
-                  <option value="Tümü">Tümü</option>
-                  <option value="COMPULSORY">Zorunlu</option>
-                  <option value="ELECTIVE">Seçmeli</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>ARAMA</label>
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Ders adı veya kodu..."
-                  style={optSelectStyle}
-                />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 24px", alignItems: "center" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: gradSections.length === 0 || bulkLoading !== null ? "not-allowed" : "pointer", userSelect: "none", opacity: gradSections.length === 0 ? 0.4 : 1 }}>
+                  <input
+                    type="checkbox"
+                    checked={allGradExcluded}
+                    disabled={gradSections.length === 0 || bulkLoading !== null}
+                    onChange={() => bulkToggle(gradSections, allGradExcluded, "grad")}
+                    style={{ width: 15, height: 15, cursor: "inherit", accentColor: C.accent, flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 12, color: C.textMuted, ...mono }}>
+                    Bitirme Projesi derslerini hariç tut
+                    {gradSections.length > 0 && <span style={{ color: C.textMuted, marginLeft: 4 }}>({gradSections.length})</span>}
+                    {bulkLoading === "grad" && <span style={{ marginLeft: 6 }}>…</span>}
+                  </span>
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: industrialSections.length === 0 || bulkLoading !== null ? "not-allowed" : "pointer", userSelect: "none", opacity: industrialSections.length === 0 ? 0.4 : 1 }}>
+                  <input
+                    type="checkbox"
+                    checked={allIndustrialExcluded}
+                    disabled={industrialSections.length === 0 || bulkLoading !== null}
+                    onChange={() => bulkToggle(industrialSections, allIndustrialExcluded, "industrial")}
+                    style={{ width: 15, height: 15, cursor: "inherit", accentColor: C.accent, flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 12, color: C.textMuted, ...mono }}>
+                    Staj / Mühendislik Uygulaması derslerini hariç tut
+                    {industrialSections.length > 0 && <span style={{ color: C.textMuted, marginLeft: 4 }}>({industrialSections.length})</span>}
+                    {bulkLoading === "industrial" && <span style={{ marginLeft: 6 }}>…</span>}
+                  </span>
+                </label>
               </div>
             </div>
           )}
