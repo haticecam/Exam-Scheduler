@@ -153,3 +153,118 @@ def test_service_aggregates_row_errors():
     assert "Satır 2" in msg
     assert "Satır 3" in msg
     assert "Satır 4" in msg
+
+
+# ── HTTP-level tests ────────────────────────────────────────────────────────
+
+@pytest.fixture
+def auth_client(db):
+    user = User.objects.create_user(username="roomtester", password="pass")
+    token = Token.objects.create(user=user)
+    c = Client()
+    c.defaults["HTTP_AUTHORIZATION"] = f"Token {token.key}"
+    return c
+
+
+@pytest.fixture
+def org(db):
+    return Organization.objects.create(name="Test University")
+
+
+UPLOAD_URL = "/api/resources/upload/"
+
+
+@pytest.mark.django_db
+def test_upload_happy_path_creates_rooms(auth_client, org):
+    f = xlsx_upload("rooms.xlsx", [
+        ["B101", 60, "Derslik", 30],
+        ["LAB1", 24, "Laboratuvar", None],
+        ["AMFI-A", 300, "Amfi", None],
+    ])
+    res = auth_client.post(UPLOAD_URL, {"file": f}, format="multipart")
+    assert res.status_code == 200, res.content
+    body = res.json()
+    assert body["created"] == 3
+    assert set(body["rooms"]) == {"B101", "LAB1", "AMFI-A"}
+
+    rooms = {r.name: r for r in Resource.objects.filter(organization=org)}
+    assert rooms["B101"].type == "CLASSROOM" and rooms["B101"].exam_capacity == 30
+    assert rooms["LAB1"].type == "LAB" and rooms["LAB1"].exam_capacity is None
+    assert rooms["AMFI-A"].type == "AMPHITHEATER" and rooms["AMFI-A"].exam_capacity == 100  # 300 // 3
+    assert rooms["B101"].availability == {"allowed_days": None, "allowed_unit_ids": None}
+
+
+@pytest.mark.django_db
+def test_upload_rejects_missing_file(auth_client, org):
+    res = auth_client.post(UPLOAD_URL, {}, format="multipart")
+    assert res.status_code == 400
+    assert "Excel dosyası yükleyin" in res.json()["error"]
+    assert Resource.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_upload_rejects_duplicate_against_db(auth_client, org):
+    Resource.objects.create(
+        organization=org, name="B101", type="CLASSROOM",
+        capacity=60, exam_capacity=30, is_active=True,
+    )
+    f = xlsx_upload("rooms.xlsx", [
+        ["B101", 60, "Derslik", 30],
+        ["B102", 40, "Derslik", None],
+    ])
+    res = auth_client.post(UPLOAD_URL, {"file": f}, format="multipart")
+    assert res.status_code == 400
+    body = res.json()
+    assert "B101" in body["duplicate_names"]
+    assert "yükleme iptal edildi" in body["error"]
+    assert Resource.objects.filter(organization=org).count() == 1
+
+
+@pytest.mark.django_db
+def test_upload_rejects_within_file_duplicate(auth_client, org):
+    f = xlsx_upload("rooms.xlsx", [
+        ["B101", 60, "Derslik", 30],
+        ["B101", 40, "Derslik", 20],
+    ])
+    res = auth_client.post(UPLOAD_URL, {"file": f}, format="multipart")
+    assert res.status_code == 400
+    assert "B101" in res.json()["duplicate_names"]
+    assert Resource.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_upload_rejects_row_error_no_rooms_created(auth_client, org):
+    f = xlsx_upload("rooms.xlsx", [
+        ["B101", 60, "Derslik", 30],
+        ["B102", "bad", "Derslik", None],
+    ])
+    res = auth_client.post(UPLOAD_URL, {"file": f}, format="multipart")
+    assert res.status_code == 400
+    assert "Kapasite" in res.json()["error"]
+    assert Resource.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_upload_auto_calcs_exam_capacity_when_blank(auth_client, org):
+    f = xlsx_upload("rooms.xlsx", [
+        ["DERS1", 80, "Derslik", None],
+        ["LAB1", 24, "Laboratuvar", None],
+        ["AMFI1", 150, "Amfi", None],
+    ])
+    res = auth_client.post(UPLOAD_URL, {"file": f}, format="multipart")
+    assert res.status_code == 200, res.content
+    rooms = {r.name: r for r in Resource.objects.filter(organization=org)}
+    assert rooms["DERS1"].exam_capacity == 40
+    assert rooms["LAB1"].exam_capacity is None
+    assert rooms["AMFI1"].exam_capacity == 50
+
+
+@pytest.mark.django_db
+def test_upload_explicit_exam_capacity_overrides_auto(auth_client, org):
+    f = xlsx_upload("rooms.xlsx", [
+        ["DERS1", 80, "Derslik", 99],
+    ])
+    res = auth_client.post(UPLOAD_URL, {"file": f}, format="multipart")
+    assert res.status_code == 200
+    room = Resource.objects.get(organization=org, name="DERS1")
+    assert room.exam_capacity == 99
