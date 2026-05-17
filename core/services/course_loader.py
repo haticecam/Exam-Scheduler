@@ -69,12 +69,20 @@ def _extract_title(name: str) -> str:
             return t
     return ""
 
+def _row_name(d: dict) -> str:
+    return d.get("Ders Adı", "") or d.get("Course Name", "")
+
 def _rows_from_csv_text(file_content: str) -> list:
     lines = file_content.splitlines()
     header = lines[0] if lines else ""
-    delimiter = "\t" if "\t" in header else ","
+    if "\t" in header:
+        delimiter = "\t"
+    elif ";" in header:
+        delimiter = ";"
+    else:
+        delimiter = ","
     reader = csv.DictReader(lines, delimiter=delimiter)
-    return [CourseRow.from_dict(r) for r in reader if r.get("Course Name", "").strip()]
+    return [CourseRow.from_dict(r) for r in reader if _row_name(r).strip()]
 
 def _rows_from_xlsx_bytes(raw: bytes) -> list:
     import openpyxl
@@ -91,7 +99,7 @@ def _rows_from_xlsx_bytes(raw: bytes) -> list:
     for row in all_rows[1:]:
         d = {header[i]: (str(row[i]).strip() if i < len(row) and row[i] is not None else "")
              for i in range(len(header))}
-        if d.get("Course Name", "").strip():
+        if _row_name(d).strip():
             result.append(CourseRow.from_dict(d))
     return result
 

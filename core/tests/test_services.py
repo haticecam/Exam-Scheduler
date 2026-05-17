@@ -20,6 +20,19 @@ def active_term(org):
 # --- CourseLoaderService ---
 
 @pytest.mark.django_db
+def test_course_loader_accepts_semicolon_delimiter(org, active_term):
+    """Semicolon-delimited CSVs must be parsed without error."""
+    csv_data = (
+        "Course Code;Course Name;Capacity;Program;Instructor;Mandatory;Year;T-hours\n"
+        "CS101;Intro CS;50;Math;Dr. Smith;1;1;3\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True
+    from core.models import CourseCatalog
+    assert CourseCatalog.objects.filter(organization=org, code="CS101").exists()
+
+@pytest.mark.django_db
 def test_course_loader_atomic_rollback_on_error(org, active_term):
     """If CourseLoaderService fails midway, no partial data should be committed."""
     csv_data = (
