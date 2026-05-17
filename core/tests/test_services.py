@@ -53,6 +53,21 @@ def test_course_loader_accepts_turkish_columns(org, active_term):
 
 
 @pytest.mark.django_db
+def test_course_loader_uses_sube_as_section_code(org, active_term):
+    """Section code must come from Şube column, not auto-generated letters."""
+    csv_data = (
+        "Şube;Ders Kodu;Ders Adı;T;U;L;K;AKTS;Sınıf;Kontenjan;Aktif;Zor.;Uyg.;Program;Öğretim Elemanı\n"
+        "2;CS201;Data Structures;3;0;0;0;5;2;80/999;__1;__1;__0;BİLGİSAYAR MÜH.;Dr. MEHMET KAYA\n"
+    )
+    from core.services.course_loader import CourseLoaderService
+    result = CourseLoaderService().process_csv(csv_data, term_id=str(active_term.id))
+    assert result.get("success") is True, result.get("error")
+    from core.models import CourseSection
+    section = CourseSection.objects.get(term=active_term, course__code="CS201")
+    assert section.section_code == "2"
+
+
+@pytest.mark.django_db
 def test_course_loader_atomic_rollback_on_error(org, active_term):
     """If CourseLoaderService fails midway, no partial data should be committed."""
     csv_data = (
