@@ -48,7 +48,7 @@ export default function RoomsPage() {
   const rooms = data?.results || data || [];
 
   // Academic units for availability selector
-  const { data: unitsData } = useFetch("/academic-units/");
+  const { data: unitsData, loading: unitsLoading } = useFetch("/academic-units/");
   const academicUnits: { id: string; name: string }[] = unitsData?.results || unitsData || [];
 
   // Add form
@@ -222,9 +222,10 @@ export default function RoomsPage() {
                       padding: "4px 10px",
                       borderRadius: 4,
                       border: `1px solid ${allowedDays.includes(d.key) ? C.cyan : C.border}`,
-                      background: allowedDays.includes(d.key) ? C.cyanSoft : "transparent",
-                      color: allowedDays.includes(d.key) ? C.cyan : C.textMuted,
+                      background: allowedDays.includes(d.key) ? C.cyan : "transparent",
+                      color: allowedDays.includes(d.key) ? "#fff" : C.textMuted,
                       fontSize: 11,
+                      fontWeight: allowedDays.includes(d.key) ? 600 : 400,
                       cursor: "pointer",
                       ...mono,
                     }}
@@ -236,9 +237,13 @@ export default function RoomsPage() {
             </div>
 
             {/* Unit restriction */}
-            {academicUnits.length > 0 && (
-              <div>
-                <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>YETKİLİ BİRİMLER (boş = tümü)</label>
+            <div>
+              <label style={{ display: "block", fontSize: 11, color: C.textMuted, marginBottom: 6, ...mono }}>YETKİLİ BİRİMLER (boş = tümü)</label>
+              {unitsLoading ? (
+                <p style={{ fontSize: 11, color: C.textMuted, margin: 0 }}>Yükleniyor…</p>
+              ) : academicUnits.length === 0 ? (
+                <p style={{ fontSize: 11, color: C.textMuted, margin: 0 }}>Henüz akademik birim tanımlanmamış.</p>
+              ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 6, padding: "6px 8px" }}>
                   {academicUnits.map((u) => (
                     <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: C.text }}>
@@ -251,8 +256,8 @@ export default function RoomsPage() {
                     </label>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {saveError && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{saveError}</p>}
             <ActionButton disabled={saving || !name || !capacity} icon="+">
@@ -303,7 +308,7 @@ export default function RoomsPage() {
           <DialogHeader>
             <DialogTitle>Odayı Düzenle</DialogTitle>
           </DialogHeader>
-          <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-4 py-2 overflow-y-auto" style={{ maxHeight: "60vh" }}>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="edit-room-name">Oda Adı / Kodu</Label>
               <Input
@@ -359,9 +364,10 @@ export default function RoomsPage() {
                       padding: "4px 10px",
                       borderRadius: 4,
                       border: `1px solid ${editAllowedDays.includes(d.key) ? "hsl(var(--primary))" : "hsl(var(--border))"}`,
-                      background: editAllowedDays.includes(d.key) ? "hsl(var(--primary) / 0.1)" : "transparent",
-                      color: editAllowedDays.includes(d.key) ? "hsl(var(--primary))" : "hsl(var(--muted-foreground))",
+                      background: editAllowedDays.includes(d.key) ? "hsl(var(--primary))" : "transparent",
+                      color: editAllowedDays.includes(d.key) ? "hsl(var(--primary-foreground))" : "hsl(var(--muted-foreground))",
                       fontSize: 11,
+                      fontWeight: editAllowedDays.includes(d.key) ? 600 : 400,
                       cursor: "pointer",
                       fontFamily: "monospace",
                     }}
@@ -373,9 +379,13 @@ export default function RoomsPage() {
             </div>
 
             {/* Unit restriction */}
-            {academicUnits.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <Label>Yetkili Birimler (boş = tümü)</Label>
+            <div className="flex flex-col gap-1.5">
+              <Label>Yetkili Birimler (boş = tümü)</Label>
+              {unitsLoading ? (
+                <p className="text-xs text-muted-foreground">Yükleniyor…</p>
+              ) : academicUnits.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Henüz akademik birim tanımlanmamış.</p>
+              ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto", border: "1px solid hsl(var(--border))", borderRadius: 6, padding: "6px 8px" }}>
                   {academicUnits.map((u) => (
                     <label key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12 }}>
@@ -388,8 +398,8 @@ export default function RoomsPage() {
                     </label>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {editError && <p className="text-sm text-destructive">{editError}</p>}
           </div>
