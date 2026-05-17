@@ -193,7 +193,7 @@ export default function CoursesPage() {
             <CSVUploader
               title="Ders Listesi (CSV)"
               endpoint="/courses/upload/"
-              templateCols={["Course Code", "Course Name", "Capacity", "Program", "Instructor", "Mandatory", "Year", "T-hours"]}
+              templateCols={["Şube", "Ders Kodu", "Ders Adı", "T", "U", "Sınıf", "Kontenjan", "Aktif", "Zor.", "Program", "Öğretim Elemanı"]}
               extraData={term ? { term_id: term.id } : undefined}
               onSuccess={refetch}
             />
