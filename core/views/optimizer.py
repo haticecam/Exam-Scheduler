@@ -116,14 +116,31 @@ class OptimizerViewSet(viewsets.ViewSet):
     @extend_schema(responses={200: {}})
     @action(detail=False, methods=['get'], url_path='history')
     def history(self, request):
+        from ..models import ExamPeriod
         org = Organization.objects.first()
         term = Term.objects.filter(organization=org, status='Active').first()
         if term:
             solutions = GeneratedSolution.objects.filter(term=term).order_by('-created_at')[:50]
         else:
             solutions = GeneratedSolution.objects.none()
+
+        ep_ids = {
+            s.parameters.get('exam_period_id')
+            for s in solutions
+            if s.parameters and s.parameters.get('exam_period_id')
+        }
+        ep_map = {}
+        if ep_ids:
+            for ep in ExamPeriod.objects.filter(id__in=ep_ids).only('id', 'name', 'start_date', 'end_date'):
+                ep_map[str(ep.id)] = {
+                    'name': ep.name,
+                    'start_date': str(ep.start_date),
+                    'end_date': str(ep.end_date),
+                }
+
         res = []
         for s in solutions:
+            ep_id = (s.parameters or {}).get('exam_period_id')
             res.append({
                 "id": str(s.id),
                 "name": s.name,
@@ -132,7 +149,8 @@ class OptimizerViewSet(viewsets.ViewSet):
                 "score": s.score,
                 "created_at": s.created_at,
                 "parameters": s.parameters,
-                "stats": s.solver_metadata
+                "stats": s.solver_metadata,
+                "exam_period": ep_map.get(str(ep_id)) if ep_id else None,
             })
         return Response(res)
 

@@ -73,6 +73,7 @@ export default function OptimizerPage() {
   const [llmErr, setLlmErr] = useState("");
   const [diagSt, setDiagSt] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [diagResult, setDiagResult] = useState<DiagnoseResult | null>(null);
+  const [showParams, setShowParams] = useState(false);
   const [appliedChanges, setAppliedChanges] = useState<AppliedChange[] | null>(null);
   const [pendingKwargs, setPendingKwargs] = useState<{
     optimizer_kwargs: Record<string, unknown>;
@@ -171,7 +172,7 @@ export default function OptimizerPage() {
   const reset = () => {
     stopPoll(); setRunSt("idle"); setSolId(null); setPollSnap(null);
     setIis([]); setSubErr(""); setDiagSt("idle"); setDiagResult(null);
-    setAppliedChanges(null); setPendingKwargs(null);
+    setAppliedChanges(null); setPendingKwargs(null); setShowParams(false);
   };
 
   // LLM: configure
@@ -196,7 +197,6 @@ export default function OptimizerPage() {
       optimizer_kwargs: llmResult.optimizer_kwargs,
       proposed_params: llmResult.proposed_params ?? null,
     });
-    setExamPeriodId("");
     setLlmSt("idle");
     setLlmResult(null);
   };
@@ -312,6 +312,79 @@ export default function OptimizerPage() {
                   <div style={{ fontSize: 12, color: C.red }}>AI tanısı başarısız. OPENAI_API_KEY ayarlandı mı?</div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Parameters used panel — shown on done */}
+          {runSt === "done" && pollSnap?.parameters && (
+            <div style={{ marginTop: 14, borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+              <button
+                type="button"
+                onClick={() => setShowParams(v => !v)}
+                style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: C.textMuted, fontSize: 11, ...mono, letterSpacing: "0.06em" }}
+              >
+                <span style={{ fontSize: 10, display: "inline-block", transform: showParams ? "rotate(90deg)" : "none", transition: "transform 150ms" }}>▶</span>
+                KULLANILAN PARAMETRELER
+              </button>
+              {showParams && (() => {
+                const p = pollSnap.parameters;
+                const llmCodes = new Set(Object.keys(p.llm_proposed_params || {}));
+                const calendarActive = Boolean(p.exam_period_id);
+                const CALENDAR_KEYS = new Set(["exam_days", "slots_per_day", "start_hour"]);
+
+                const rows: { key: string; label: string; value: unknown; fromLlm: boolean; fromCalendar: boolean }[] = [
+                  { key: "exam_period_id",      label: "Sınav Takvimi",       value: p.exam_period_id ?? "—",    fromLlm: false, fromCalendar: false },
+                  { key: "hard_threshold",       label: "Hard Threshold",      value: p.hard_threshold,           fromLlm: llmCodes.has("PARAM_HARD_THRESHOLD"),      fromCalendar: false },
+                  { key: "exam_days",            label: "Sınav Günü",          value: p.exam_days,                fromLlm: llmCodes.has("PARAM_EXAM_DAYS"),            fromCalendar: calendarActive },
+                  { key: "slots_per_day",        label: "Slot/Gün",            value: p.slots_per_day,            fromLlm: llmCodes.has("PARAM_SLOTS_PER_DAY"),        fromCalendar: calendarActive },
+                  { key: "start_hour",           label: "Başlangıç Saati",     value: p.start_hour,               fromLlm: llmCodes.has("PARAM_START_HOUR"),           fromCalendar: calendarActive },
+                  { key: "no_back_to_back",      label: "Ardışık Yasak",       value: String(p.no_back_to_back),  fromLlm: llmCodes.has("PARAM_NO_BACK_TO_BACK"),      fromCalendar: false },
+                  { key: "time_limit",           label: "Zaman Limiti (s)",    value: p.time_limit ?? "—",        fromLlm: llmCodes.has("PARAM_TIME_LIMIT"),           fromCalendar: false },
+                  { key: "mip_gap",              label: "MIP Gap",             value: p.mip_gap,                  fromLlm: llmCodes.has("PARAM_MIP_GAP"),              fromCalendar: false },
+                  { key: "year_order_weight",    label: "Yıl Sırası Ağırlığı", value: p.year_order_weight,        fromLlm: llmCodes.has("PARAM_YEAR_ORDER_WEIGHT"),    fromCalendar: false },
+                  { key: "year_order_sequence",  label: "Yıl Sırası",          value: p.year_order_sequence ? JSON.stringify(p.year_order_sequence) : "—", fromLlm: llmCodes.has("PARAM_YEAR_ORDER_SEQUENCE"), fromCalendar: false },
+                  { key: "no_back_to_back_depts",label: "Ardışık Yasak Bölüm", value: p.no_back_to_back_depts ? JSON.stringify(p.no_back_to_back_depts) : "—", fromLlm: llmCodes.has("SCOPE_DEPT_NO_BACK_TO_BACK"), fromCalendar: false },
+                ];
+
+                return (
+                  <div style={{ marginTop: 10 }}>
+                    {calendarActive && (
+                      <div style={{ fontSize: 11, color: C.green, marginBottom: 8, display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontWeight: 700 }}>✓ TAKVİM AKTİF</span>
+                        <span style={{ color: C.textMuted }}>— gün sayısı, saatler ve slotlar takvimden alındı</span>
+                      </div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "6px 12px" }}>
+                      {rows.map(r => (
+                        <div key={r.key} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 11, ...mono }}>
+                          <span style={{ color: C.textMuted, flexShrink: 0 }}>{r.label}:</span>
+                          <span style={{
+                            color: r.fromCalendar ? C.green : r.fromLlm ? C.cyan : C.text,
+                            fontWeight: (r.fromCalendar || r.fromLlm) ? 700 : 400,
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>
+                            {String(r.value)}
+                            {r.fromCalendar && <span style={{ fontSize: 9, color: C.green, marginLeft: 4 }}>TAKVİM</span>}
+                            {!r.fromCalendar && r.fromLlm && <span style={{ fontSize: 9, color: C.cyan, marginLeft: 4 }}>AI</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {p.llm_proposed_params && Object.keys(p.llm_proposed_params).length > 0 && (
+                      <div style={{ marginTop: 10, padding: "8px 10px", background: `color-mix(in srgb, ${C.cyan} 7%, transparent)`, borderRadius: 6, border: `1px solid color-mix(in srgb, ${C.cyan} 20%, transparent)` }}>
+                        <div style={{ fontSize: 9, color: C.cyan, ...mono, letterSpacing: "0.08em", marginBottom: 5 }}>AI ÖNERDİ</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 10px" }}>
+                          {Object.entries(p.llm_proposed_params).map(([k, v]) => (
+                            <span key={k} style={{ fontSize: 11, ...mono, color: C.cyan }}>
+                              {k}: <span style={{ color: C.text }}>{typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </Card>
