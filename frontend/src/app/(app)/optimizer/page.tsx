@@ -40,6 +40,92 @@ const CALENDAR_OVERRIDDEN_CODES = new Set([
   "PARAM_START_HOUR",
 ]);
 
+const FIELD_LABELS_TR: Record<string, string> = {
+  term_id: "Dönem",
+  name: "Çözüm adı",
+  exam_days: "Sınav günü sayısı",
+  slots_per_day: "Gün başı slot",
+  start_hour: "Başlangıç saati",
+  hard_threshold: "Çakışma eşiği",
+  time_limit: "Zaman limiti",
+  mip_gap: "MIP gap toleransı",
+  no_back_to_back: "Arka arkaya sınav engeli",
+  year_order_weight: "Yıl sırası ağırlığı",
+  year_order_sequence: "Yıl sırası",
+  year_order_weights: "Yıl ağırlıkları",
+  exam_period_id: "Sınav takvimi",
+  proposed_params: "Önerilen parametreler",
+};
+
+function translateDrfMessage(msg: string): string {
+  let m = msg.match(/^Ensure this value is greater than or equal to (\S+?)\.?$/);
+  if (m) return `${m[1]} veya daha büyük bir değer girin.`;
+  m = msg.match(/^Ensure this value is less than or equal to (\S+?)\.?$/);
+  if (m) return `${m[1]} veya daha küçük bir değer girin.`;
+  m = msg.match(/^Ensure this field has no more than (\d+) characters\.?$/);
+  if (m) return `Bu alan en fazla ${m[1]} karakter olabilir.`;
+  if (msg === "This field is required.") return "Bu alan zorunludur.";
+  if (msg === "This field may not be null.") return "Bu alan boş bırakılamaz.";
+  if (msg === "This field may not be blank.") return "Bu alan boş bırakılamaz.";
+  if (msg === "A valid integer is required.") return "Geçerli bir tam sayı girin.";
+  if (msg === "A valid number is required.") return "Geçerli bir sayı girin.";
+  if (msg.includes("is not a valid UUID")) return "Geçerli bir kimlik (UUID) değil.";
+  return msg;
+}
+
+function NumberInput({
+  value, onChange, min, step, style,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+  min?: number;
+  step?: string | number;
+  style?: React.CSSProperties;
+}) {
+  const [draft, setDraft] = useState<string>(String(value));
+  const lastEmittedRef = useRef<number>(value);
+
+  // Sync draft when value changes from outside (LLM applied params, reset, etc.),
+  // but ignore round-trips from our own emit so we don't clobber mid-edit text.
+  useEffect(() => {
+    if (value !== lastEmittedRef.current) {
+      setDraft(String(value));
+      lastEmittedRef.current = value;
+    }
+  }, [value]);
+
+  const emit = (n: number) => {
+    lastEmittedRef.current = n;
+    onChange(n);
+  };
+
+  return (
+    <input
+      type="number"
+      min={min}
+      step={step}
+      style={style}
+      value={draft}
+      onChange={e => {
+        const s = e.target.value;
+        setDraft(s);
+        if (s === "" || s === "-" || s.endsWith(".")) return;
+        const n = parseFloat(s);
+        if (!Number.isNaN(n)) emit(n);
+      }}
+      onBlur={() => {
+        if (draft === "") { setDraft(String(value)); return; }
+        const n = parseFloat(draft);
+        if (Number.isNaN(n)) { setDraft(String(value)); return; }
+        if (min !== undefined && n < min) {
+          emit(min);
+          setDraft(String(min));
+        }
+      }}
+    />
+  );
+}
+
 export default function OptimizerPage() {
   const router = useRouter();
   const { data: termsData } = useFetch("/terms/");
@@ -149,7 +235,14 @@ export default function OptimizerPage() {
       setPendingKwargs(null);
 
       const { name, ...rest } = { ...params, ...extraParams };
-      const payload = name ? { ...rest, name } : rest;
+      const payload: Record<string, unknown> = name ? { ...rest, name } : { ...rest };
+      // Calendar provides exam_days/slots_per_day/start_hour — sending them would
+      // re-validate form values that the backend will ignore anyway.
+      if (examPeriodId) {
+        delete payload.exam_days;
+        delete payload.slots_per_day;
+        delete payload.start_hour;
+      }
       const finalPayload = {
         ...(resolvedProposedParams ? { ...payload, proposed_params: resolvedProposedParams } : payload),
         ...(examPeriodId ? { exam_period_id: examPeriodId } : {}),
@@ -161,8 +254,18 @@ export default function OptimizerPage() {
       startPolling(id);
     } catch (e: any) {
       const d = e.data || {};
-      const msg = d.detail || d.error ||
-        Object.entries(d).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`).join(" | ") ||
+      const msg =
+        (d.detail && translateDrfMessage(String(d.detail))) ||
+        (d.error && translateDrfMessage(String(d.error))) ||
+        Object.entries(d)
+          .map(([k, v]) => {
+            const label = FIELD_LABELS_TR[k] || k;
+            const text = Array.isArray(v)
+              ? v.map(x => translateDrfMessage(String(x))).join(", ")
+              : translateDrfMessage(String(v));
+            return `${label}: ${text}`;
+          })
+          .join(" | ") ||
         e.message;
       setSubErr(msg);
       setRunSt("error");
@@ -593,7 +696,7 @@ export default function OptimizerPage() {
               ].map(f => (
                 <div key={f.key}>
                   <label style={lStyle}>{f.label}</label>
-                  <input style={iStyle} type="number" value={params[f.key as keyof typeof params] as number} onChange={e => setParams({ ...params, [f.key]: +e.target.value })} />
+                  <NumberInput style={iStyle} value={params[f.key as keyof typeof params] as number} onChange={n => setParams({ ...params, [f.key]: n })} />
                 </div>
               ))}
             </div>
@@ -601,7 +704,7 @@ export default function OptimizerPage() {
 
           <div>
             <label style={lStyle}>ÇAKIŞMA EŞİĞİ (HARD THRESHOLD)</label>
-            <input style={iStyle} type="number" min={0} value={params.hard_threshold} onChange={e => setParams({ ...params, hard_threshold: +e.target.value })} />
+            <NumberInput style={iStyle} min={0} value={params.hard_threshold} onChange={n => setParams({ ...params, hard_threshold: n })} />
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 5, lineHeight: 1.6 }}>
               Aynı anda iki sınava girecek öğrenci çakışmalarının <b>izin verilen maksimum sayısı</b>. <br />
               <span style={{ color: C.textSub }}>0 → hiçbir çakışmaya izin verme (en katı, çözüm uzar) · yüksek değer çözümü hızlandırır ancak bazı öğrenciler çakışmalı sınava girebilir.</span>
@@ -613,12 +716,12 @@ export default function OptimizerPage() {
           <SL>SOLVER AYARLARI (GUROBI)</SL>
           <div>
             <label style={lStyle}>ZAMAN LİMİTİ (saniye)</label>
-            <input style={iStyle} type="number" min={1} value={params.time_limit} onChange={e => setParams({ ...params, time_limit: Math.max(1, +e.target.value) })} />
+            <NumberInput style={iStyle} min={1} value={params.time_limit} onChange={n => setParams({ ...params, time_limit: n })} />
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · varsayılan 300s (5 dk)</div>
           </div>
           <div>
             <label style={lStyle}>MIP GAP TOLERANSI</label>
-            <input style={iStyle} type="number" step="0.01" value={params.mip_gap} onChange={e => setParams({ ...params, mip_gap: +e.target.value })} />
+            <NumberInput style={iStyle} step="0.01" min={0} value={params.mip_gap} onChange={n => setParams({ ...params, mip_gap: n })} />
             <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>0.10 = %10 tolerans · düşüldükçe çözüm daha optimal ama daha yavaş</div>
           </div>
 
