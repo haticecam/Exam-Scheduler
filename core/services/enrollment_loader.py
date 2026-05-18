@@ -1,5 +1,6 @@
 import csv
 import io
+import unicodedata
 import uuid
 from collections import defaultdict
 
@@ -138,6 +139,21 @@ class XlsxEnrollmentLoaderService:
         return name.strip().rstrip('.,').upper()
 
     @staticmethod
+    def _canonicalize_filename(filename: str) -> str:
+        # Some uploads arrive with names whose UTF-8 bytes (NFD) were re-decoded
+        # as cp437 upstream (`TİT101.xlsx` → `TI╠çT101.xlsx`). Round-tripping
+        # cp437 → utf-8 reverses that; we then NFC-normalize so the recovered
+        # name matches DB course codes stored in NFC.
+        candidate = filename
+        try:
+            recovered = filename.encode('cp437').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            recovered = None
+        if recovered and '�' not in recovered and recovered != filename:
+            candidate = recovered
+        return unicodedata.normalize('NFC', candidate)
+
+    @staticmethod
     def _find_col_idx(header: list[str], prefix: str) -> int | None:
         for i, col in enumerate(header):
             if col == prefix or col.startswith(prefix + '_'):
@@ -147,7 +163,8 @@ class XlsxEnrollmentLoaderService:
     def _process_one_file(self, filename: str, file_bytes: bytes, term, org) -> dict:
         import openpyxl
 
-        course_code = filename.rsplit('.', 1)[0]
+        canonical_name = self._canonicalize_filename(filename)
+        course_code = canonical_name.rsplit('.', 1)[0]
 
         sections = list(
             CourseSection.objects.select_related('course')

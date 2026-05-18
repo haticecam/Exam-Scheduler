@@ -1,4 +1,5 @@
 import io
+import unicodedata
 import pytest
 import openpyxl
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -172,6 +173,40 @@ def test_service_all_unknown_programs_loads_nothing(base_data):
     assert file_result['enrollments_created'] == 0
     assert file_result['skipped_unknown_program_students'] == 1
     assert file_result['unknown_programs_breakdown'] == {'UNKNOWN DEPT': 1}
+
+
+@pytest.mark.django_db
+def test_service_recovers_mojibake_filename(base_data):
+    """Filenames mis-decoded as cp437 (e.g. `TI╠çT101.xlsx` for `TİT101.xlsx`)
+    must be canonicalized before deriving the course code, so enrollments still
+    land in the correct CourseSection."""
+    course = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=base_data['dept'],
+        code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
+    )
+    section = CourseSection.objects.create(
+        term=base_data['term'], course=course, section_code="A", max_enrollment=100
+    )
+    mojibake_name = "TİT101.xlsx".encode('utf-8').decode('utf-8')
+    mojibake_name = unicodedata.normalize('NFD', mojibake_name).encode('utf-8').decode('cp437')
+    assert mojibake_name == 'TI╠çT101.xlsx', f"sanity check on mojibake construction: got {mojibake_name!r}"
+
+    xlsx_bytes = make_xlsx([
+        HEADER,
+        ['24050141033', 'BİLGİSAYAR MÜH', 1, 'Arş.Gör. TEST', 'Zorunlu'],
+        ['25050141006', 'BİLGİSAYAR MÜH', 1, 'Arş.Gör. TEST', 'Zorunlu'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    result = svc.process_files(
+        [(mojibake_name, xlsx_bytes)],
+        str(base_data['term'].id)
+    )
+    file_result = result['results'][0]
+    assert 'error' not in file_result, file_result.get('error')
+    assert file_result['course_code'] == 'TİT101'
+    assert file_result['students_created'] == 2
+    assert file_result['enrollments_created'] == 2
+    assert Enrollment.objects.filter(section=section).count() == 2
 
 
 @pytest.mark.django_db
