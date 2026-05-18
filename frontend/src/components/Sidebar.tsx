@@ -77,10 +77,10 @@ const NavItem = ({ id, label, active }: NavItemProps) => {
 
 /* ── Term switcher ───────────────────────────────────────────────────────── */
 function TermSwitcher() {
-  const { data, refetch } = useFetch("/terms/");
+  const { termVersion, bumpTermVersion } = useTermVersion();
+  const { data, refetch } = useFetch("/terms/", [termVersion]);
   const terms: any[] = data?.results ?? data ?? [];
   const activeTerm = terms.find((t: any) => t.status === "Active") ?? terms[0];
-  const { bumpTermVersion } = useTermVersion();
 
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
