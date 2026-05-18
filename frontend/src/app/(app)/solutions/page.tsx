@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
@@ -182,6 +182,13 @@ export default function SolutionsPage() {
   const { termVersion } = useTermVersion();
   const { data, loading, error, refetch } = useFetch("/optimize/history/", [termVersion]);
   const solutions: Solution[] = data?.results || data || [];
+
+  const hasInFlight = solutions.some(s => s.status === "PROCESSING" || s.status === "PENDING");
+  useEffect(() => {
+    if (!hasInFlight) return;
+    const id = setInterval(() => refetch({ silent: true }), 5000);
+    return () => clearInterval(id);
+  }, [hasInFlight, refetch]);
 
   const [deleteTarget, setDeleteTarget] = useState<Solution | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
