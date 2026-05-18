@@ -237,7 +237,8 @@ export default function SolutionsPage() {
     }
   };
 
-  const DONE = ["COMPLETED", "OPTIMAL", "FEASIBLE", "FEASIBLE (TIME LIMIT)", "FEASIBLE_TIME_LIMIT"];
+  const DONE = ["COMPLETED", "OPTIMAL", "FEASIBLE", "FEASIBLE (TIME LIMIT)", "FEASIBLE_TIME_LIMIT", "MANUAL_OVERRIDE"];
+  const VIEWABLE = [...DONE];
 
   return (
     <div style={{ padding: "32px 40px" }}>
@@ -265,7 +266,12 @@ export default function SolutionsPage() {
                   <DataCell style={{ fontWeight: 600, ...mono }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       {s.name || `Senaryo #${s.id.slice(0, 8)}`}
-                      {s.exam_period && (
+                      {s.status === "MANUAL_OVERRIDE" && (
+                        <span style={{ fontSize: 10, color: C.purple, background: `color-mix(in srgb, ${C.purple} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${C.purple} 30%, transparent)`, padding: "1px 6px", borderRadius: 4, letterSpacing: "0.04em", fontWeight: 700 }}>
+                          MANUEL DÜZENLEME
+                        </span>
+                      )}
+                      {s.exam_period && s.status !== "MANUAL_OVERRIDE" && (
                         <span style={{ fontSize: 10, color: C.green, background: `color-mix(in srgb, ${C.green} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${C.green} 30%, transparent)`, padding: "1px 6px", borderRadius: 4, letterSpacing: "0.04em", fontWeight: 600 }}>
                           {s.exam_period.name}
                         </span>
@@ -278,7 +284,7 @@ export default function SolutionsPage() {
                   <DataCell><Badge status={s.status} /></DataCell>
                   <DataCell>
                     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                      {DONE.includes(s.status) && (
+                      {VIEWABLE.includes(s.status) && (
                         <ActionButton onClick={() => router.push(`/schedule?id=${s.id}`)} variant="secondary">
                           Takvimi Görüntüle
                         </ActionButton>

@@ -2,17 +2,45 @@
 import React from "react";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Spinner, InfoBox, Badge, PageContainer, PageHeader, ActionButton } from "@/components/ui";
 import { Suspense } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 function ScheduleContent() {
   const searchParams = useSearchParams();
   const solId = searchParams.get("id");
+  const router = useRouter();
   const [bestSol, setBestSol] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
   const [deptFilter, setDeptFilter] = React.useState<string>("");
   const [showConflicts, setShowConflicts] = React.useState(false);
+
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [editableAssignments, setEditableAssignments] = React.useState<any[]>([]);
+  const [saveLoading, setSaveLoading] = React.useState(false);
+  const [showSaveNameModal, setShowSaveNameModal] = React.useState(false);
+  const [saveNameInput, setSaveNameInput] = React.useState("");
+  const [saveError, setSaveError] = React.useState("");
+  const [editModalCourse, setEditModalCourse] = React.useState<{
+    code: string;
+    name: string;
+    day: string;
+    time: string;
+    rooms: string[];
+    allRooms: string[];
+  } | null>(null);
+
+  const { data: roomsData } = useFetch("/resources/?type=ROOM");
+  const allAvailableRooms = React.useMemo(() => {
+    return (roomsData?.results || roomsData || []).map((r: any) => r.name || r.label).sort();
+  }, [roomsData]);
 
   React.useEffect(() => {
     const fetchSol = async () => {
@@ -39,8 +67,32 @@ function ScheduleContent() {
     fetchSol();
   }, [solId]);
 
-  const allAssignments = (bestSol?.schedule || bestSol?.detailed_schedule || []) as any[];
-  const allPenalties = (bestSol?.penalties || []) as any[];
+  React.useEffect(() => {
+    if (bestSol) {
+      setEditableAssignments(bestSol.schedule || bestSol.detailed_schedule || []);
+    }
+  }, [bestSol]);
+
+  const allAssignments = isEditing ? editableAssignments : ((bestSol?.schedule || bestSol?.detailed_schedule || []) as any[]);
+  const allPenalties = (bestSol?.penalties || bestSol?.detailed_penalties || []) as any[];
+
+  const availableDays = React.useMemo(() => {
+    const days = Array.from(new Set(allAssignments.map((a: any) => a.day || a.date))).filter(Boolean) as string[];
+    return days.sort((a, b) => {
+      const parseDdMm = (s: string) => {
+        const m = s.match(/(\d{2})\/(\d{2})/);
+        return m ? parseInt(m[2]) * 100 + parseInt(m[1]) : null;
+      };
+      const nA = parseDdMm(a), nB = parseDdMm(b);
+      if (nA !== null && nB !== null) return nA - nB;
+      const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      return order.findIndex(o => a.includes(o)) - order.findIndex(o => b.includes(o));
+    });
+  }, [allAssignments]);
+
+  const availableTimes = React.useMemo(() => {
+    return Array.from(new Set(allAssignments.map((a: any) => a.time || a.start_time))).filter(Boolean).sort() as string[];
+  }, [allAssignments]);
 
   // All unique departments derived from the schedule
   const depts = Array.from(
@@ -60,10 +112,10 @@ function ScheduleContent() {
   // Filter penalties by department (falls back to showing all if old solution format)
   const penalties = deptFilter && penaltiesHaveDeptInfo
     ? allPenalties.filter((p: any) => {
-        if (p.type === "ÇAKIŞMA") return p.depts?.includes(deptFilter);
-        if (p.type === "YAYILIM") return p.dept === deptFilter;
-        return true;
-      })
+      if (p.type === "ÇAKIŞMA") return p.depts?.includes(deptFilter);
+      if (p.type === "YAYILIM") return p.dept === deptFilter;
+      return true;
+    })
     : allPenalties;
 
   const grouped: any = {};
@@ -118,6 +170,27 @@ function ScheduleContent() {
     printWindow.document.close();
   };
 
+  const handleSave = async () => {
+    if (!saveNameInput.trim()) { setSaveError("Lütfen bir isim girin."); return; }
+    if (saveLoading) return;
+    setSaveLoading(true);
+    setSaveError("");
+    try {
+      const res = await api.post("/optimize/save-override/", {
+        original_id: bestSol.id,
+        name: saveNameInput.trim(),
+        schedule: editableAssignments,
+      });
+      setIsEditing(false);
+      setShowSaveNameModal(false);
+      router.push(`/schedule?id=${res.id}`);
+    } catch {
+      setSaveError("Kaydetme başarısız. Lütfen tekrar deneyin.");
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   const selectStyle = {
     background: "var(--surface)",
     border: `1px solid ${C.border}`,
@@ -157,7 +230,39 @@ function ScheduleContent() {
                 {showConflicts ? "Kapat" : `Çakışmalar (${penalties.length}${deptFilter ? "" : ""})`}
               </ActionButton>
             )}
-            {assignments.length > 0 && (
+            {bestSol && !isEditing && (
+              <ActionButton
+                onClick={() => setIsEditing(true)}
+                variant="primary"
+              >
+                Düzenle
+              </ActionButton>
+            )}
+            {isEditing && (
+              <>
+                <ActionButton
+                  onClick={() => {
+                    setSaveNameInput(bestSol?.name ? bestSol.name + " (Manuel)" : "Manuel Takvim");
+                    setShowSaveNameModal(true);
+                  }}
+
+                  variant="primary"
+                >
+                  Kaydet
+                </ActionButton>
+                <ActionButton
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditableAssignments(bestSol.schedule || bestSol.detailed_schedule || []);
+                  }}
+                  icon="✕"
+                  variant="secondary"
+                >
+                  İptal
+                </ActionButton>
+              </>
+            )}
+            {assignments.length > 0 && !isEditing && (
               <ActionButton onClick={handlePrint} icon="📥">
                 Yazdır / PDF
               </ActionButton>
@@ -178,7 +283,9 @@ function ScheduleContent() {
               )}
             </h3>
             <span style={{ fontSize: 12, color: C.textMuted, ...mono }}>
-              {penalties.filter(p => p.type === "ÇAKIŞMA").length} çakışma &nbsp;·&nbsp;
+              {penalties.filter(p => p.type === "ÇAKIŞMA").length} öğrenci çakışması &nbsp;·&nbsp;
+              {penalties.filter(p => p.type === "ODA_ÇAKIŞMASI").length} sınıf çakışması &nbsp;·&nbsp;
+              {penalties.filter(p => p.type === "KAPASİTE").length} kapasite aşımı &nbsp;·&nbsp;
               {penalties.filter(p => p.type === "YAYILIM").length} yığılma
             </span>
           </div>
@@ -196,38 +303,41 @@ function ScheduleContent() {
             </p>
           ) : (
             <div style={{ maxHeight: 340, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-              {penalties.map((p, i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: "var(--surface-container-high)",
-                    padding: "10px 16px",
-                    borderRadius: 6,
-                    borderLeft: `3px solid ${p.type === "ÇAKIŞMA" ? "var(--status-danger)" : "var(--status-warning)"}`,
-                    fontSize: 13,
-                    color: C.text,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 16,
-                  }}
-                >
-                  <span>{p.desc}</span>
-                  <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                    <span style={{
-                      fontSize: 10,
-                      padding: "2px 7px",
-                      borderRadius: 4,
-                      background: p.type === "ÇAKIŞMA" ? C.redSoft : C.amberSoft,
-                      color: p.type === "ÇAKIŞMA" ? C.red : C.amber,
-                      ...mono,
-                    }}>
-                      {p.type}
+              {penalties.map((p, i) => {
+                const isDanger = ["ÇAKIŞMA", "ODA_ÇAKIŞMASI", "KAPASİTE"].includes(p.type);
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      background: "var(--surface-container-high)",
+                      padding: "10px 16px",
+                      borderRadius: 6,
+                      borderLeft: `3px solid ${isDanger ? "var(--status-danger)" : "var(--status-warning)"}`,
+                      fontSize: 13,
+                      color: C.text,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 16,
+                    }}
+                  >
+                    <span>{p.desc}</span>
+                    <span style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                      <span style={{
+                        fontSize: 10,
+                        padding: "2px 7px",
+                        borderRadius: 4,
+                        background: isDanger ? C.redSoft : C.amberSoft,
+                        color: isDanger ? C.red : C.amber,
+                        ...mono,
+                      }}>
+                        {p.type}
+                      </span>
+                      <span style={{ fontSize: 11, color: C.textMuted, ...mono }}>{p.day}</span>
                     </span>
-                    <span style={{ fontSize: 11, color: C.textMuted, ...mono }}>{p.day}</span>
-                  </span>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -265,7 +375,27 @@ function ScheduleContent() {
                       {Object.keys(grouped[day][time]).map((cKey, cIdx) => {
                         const course = grouped[day][time][cKey];
                         return (
-                          <tr key={cKey} style={{ borderBottom: `1px solid ${C.border}`, background: "transparent" }}>
+                          <tr
+                            key={cKey}
+                            style={{
+                              borderBottom: `1px solid ${C.border}`,
+                              background: isEditing ? "color-mix(in srgb, var(--surface-container) 80%, transparent)" : "transparent",
+                              cursor: isEditing ? "pointer" : "default",
+                              transition: "background 0.2s"
+                            }}
+                            draggable={false}
+                            onClick={() => {
+                              if (!isEditing) return;
+                              setEditModalCourse({
+                                code: course.code,
+                                name: course.name,
+                                day: day,
+                                time: time,
+                                rooms: course.rooms,
+                                allRooms: Array.from(new Set([...allAvailableRooms, ...course.rooms])).sort() as string[]
+                              });
+                            }}
+                          >
                             {cIdx === 0 && (
                               <td rowSpan={Object.keys(grouped[day][time]).length} style={{ padding: "16px 24px", verticalAlign: "top", borderRight: `1px solid ${C.border}22`, color: C.cyan, fontWeight: 700, fontSize: 14 }}>
                                 {time}
@@ -302,6 +432,146 @@ function ScheduleContent() {
           ))}
         </div>
       )}
+
+      {/* Save Name Modal */}
+      <Dialog open={showSaveNameModal} onOpenChange={(open) => { if (!open) { setShowSaveNameModal(false); setSaveError(""); } }}>
+        <DialogContent style={{ background: C.surface, borderColor: C.border, color: C.text, maxWidth: 440 }}>
+          <DialogHeader>
+            <DialogTitle style={{ ...mono }}>Takvimi Kaydet</DialogTitle>
+          </DialogHeader>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
+            <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 700 }}>YENİ TAKVİMİN ADI</label>
+            <input
+              type="text"
+              value={saveNameInput}
+              onChange={e => setSaveNameInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
+              placeholder="Örn: Final Dönemi (Düzeltilmiş)"
+              style={{
+                width: "100%",
+                padding: "10px 14px",
+                borderRadius: 8,
+                background: "var(--surface-container)",
+                border: `1px solid ${C.border}`,
+                color: C.text,
+                ...mono,
+                fontSize: 13,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+              autoFocus
+            />
+            <p style={{ fontSize: 11, color: C.textMuted, margin: 0 }}>Bu isimle yeni bir takvim oluşturulacak ve Çözümler listesinde görünecektir.</p>
+            {saveError && <p style={{ fontSize: 12, color: "var(--status-danger)", margin: 0 }}>{saveError}</p>}
+          </div>
+          <DialogFooter style={{ marginTop: 24 }}>
+            <ActionButton variant="secondary" onClick={() => { setShowSaveNameModal(false); setSaveError(""); }}>İptal</ActionButton>
+            <ActionButton
+              variant="primary"
+              disabled={saveLoading}
+              onClick={handleSave}
+            >
+              {saveLoading ? "Kaydediliyor..." : "Kaydet"}
+            </ActionButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Exam Edit Modal */}
+      <Dialog open={!!editModalCourse} onOpenChange={(open) => { if (!open) setEditModalCourse(null); }}>
+        <DialogContent style={{ background: C.surface, borderColor: C.border, color: C.text, maxWidth: 500 }}>
+          <DialogHeader>
+            <DialogTitle style={{ ...mono }}>Sınavı Düzenle</DialogTitle>
+          </DialogHeader>
+          {editModalCourse && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
+              <div>
+                <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, marginBottom: 8, display: "block" }}>DERS</label>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{editModalCourse.name} <span style={{ color: C.cyan, ...mono }}>{editModalCourse.code}</span></div>
+              </div>
+              <div style={{ display: "flex", gap: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, marginBottom: 8, display: "block" }}>GÜN</label>
+                  <select
+                    value={editModalCourse.day}
+                    onChange={e => setEditModalCourse({ ...editModalCourse, day: e.target.value })}
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: 8, background: "var(--surface-container)", border: `1px solid ${C.border}`, color: C.text, ...mono, outline: "none" }}
+                  >
+                    {availableDays.map((d: any) => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, marginBottom: 8, display: "block" }}>SAAT</label>
+                  <select
+                    value={editModalCourse.time}
+                    onChange={e => setEditModalCourse({ ...editModalCourse, time: e.target.value })}
+                    style={{ width: "100%", padding: "10px 14px", borderRadius: 8, background: "var(--surface-container)", border: `1px solid ${C.border}`, color: C.text, ...mono, outline: "none" }}
+                  >
+                    {availableTimes.map((t: any) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: C.textMuted, fontWeight: 700, marginBottom: 8, display: "block" }}>SINAV YERİ (Birden fazla seçebilirsiniz)</label>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxHeight: 150, overflowY: "auto", padding: 8, border: `1px solid ${C.border}`, borderRadius: 8, background: "var(--surface-container-low)" }}>
+                  {editModalCourse.allRooms.map((room: string) => {
+                    const isSelected = editModalCourse.rooms.includes(room);
+                    return (
+                      <div
+                        key={room}
+                        onClick={() => {
+                          const newRooms = isSelected
+                            ? editModalCourse.rooms.filter(r => r !== room)
+                            : [...editModalCourse.rooms, room];
+                          setEditModalCourse({ ...editModalCourse, rooms: newRooms });
+                        }}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          background: isSelected ? C.cyan : "var(--surface)",
+                          color: isSelected ? "#000" : C.text,
+                          border: `1px solid ${isSelected ? C.cyan : C.border}`,
+                          userSelect: "none",
+                        }}
+                      >
+                        {room}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter style={{ marginTop: 24 }}>
+            <ActionButton variant="secondary" onClick={() => setEditModalCourse(null)}>İptal</ActionButton>
+            <ActionButton
+              variant="primary"
+              onClick={() => {
+                if (!editModalCourse) return;
+                if (editModalCourse.rooms.length === 0) { alert("Lütfen en az bir sınav yeri seçin."); return; }
+                const sampleAssignment = editableAssignments.find(a => (a.code || a.course_code) === editModalCourse.code);
+                const filtered = editableAssignments.filter(a => (a.code || a.course_code) !== editModalCourse.code);
+                const newAssignments = editModalCourse.rooms.map(room => ({
+                  ...sampleAssignment,
+                  day: editModalCourse.day,
+                  date: editModalCourse.day,
+                  time: editModalCourse.time,
+                  start_time: editModalCourse.time,
+                  room: room,
+                  resource_name: room,
+                }));
+                setEditableAssignments([...filtered, ...newAssignments]);
+                setEditModalCourse(null);
+              }}
+            >
+              Uygula
+            </ActionButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageContainer>
   );
 }
