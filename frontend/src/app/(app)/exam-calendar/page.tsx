@@ -72,13 +72,31 @@ export default function ExamCalendarPage() {
 
   /* ── Calendar tab state ─────────────────────────────────────────────────── */
   const [selectedTermId, setSelectedTermId] = useState("");
+  const [selectedPeriodId, setSelectedPeriodId] = useState("");
+
+  React.useEffect(() => {
+    const sTerm = sessionStorage.getItem("exam_cal_term");
+    const sPeriod = sessionStorage.getItem("exam_cal_period");
+    if (sTerm) setSelectedTermId(sTerm);
+    if (sPeriod) setSelectedPeriodId(sPeriod);
+  }, []);
+
+  React.useEffect(() => {
+    if (selectedTermId) sessionStorage.setItem("exam_cal_term", selectedTermId);
+    else sessionStorage.removeItem("exam_cal_term");
+  }, [selectedTermId]);
+
+  React.useEffect(() => {
+    if (selectedPeriodId) sessionStorage.setItem("exam_cal_period", selectedPeriodId);
+    else sessionStorage.removeItem("exam_cal_period");
+  }, [selectedPeriodId]);
+
   const { data: periodsData, refetch: refetchPeriods } = useFetch(
     selectedTermId ? `/exam-periods/?term_id=${selectedTermId}` : "",
     [selectedTermId]
   );
   const periods: ExamPeriod[] = periodsData || [];
 
-  const [selectedPeriodId, setSelectedPeriodId] = useState("");
   const { data: slotsData, refetch: refetchSlots } = useFetch(
     selectedPeriodId ? `/exam-periods/${selectedPeriodId}/slots/` : "",
     [selectedPeriodId]
@@ -243,29 +261,18 @@ export default function ExamCalendarPage() {
   const selectedPeriod = periods.find(p => p.id === selectedPeriodId);
 
   /* ── Optimization tab state ─────────────────────────────────────────────── */
-  const [optTermId, setOptTermId] = useState("");
-  const [optPeriodId, setOptPeriodId] = useState("");
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (terms.length > 0 && !optTermId) {
+    if (terms.length > 0 && !selectedTermId) {
       const active = terms.find((t: any) => t.status === "Active") || terms[0];
-      if (active) setOptTermId(String(active.id));
+      if (active) setSelectedTermId(String(active.id));
     }
-  }, [terms.length]);
-
-  const { data: optPeriodsData, refetch: refetchOptPeriods } = useFetch(
-    optTermId ? `/exam-periods/?term_id=${optTermId}` : ""
-  );
-  const optPeriods: any[] = optPeriodsData?.results || optPeriodsData || [];
-
-  React.useEffect(() => {
-    setOptPeriodId("");
-  }, [optTermId]);
+  }, [terms.length, selectedTermId]);
 
   const { data: sectionsData, loading: sectionsLoading, refetch: refetchSections } = useFetch(
-    optTermId && optPeriodId
-      ? `/course-sections/?term_id=${optTermId}&exam_period_id=${optPeriodId}&include_empty=true`
+    selectedTermId && selectedPeriodId
+      ? `/course-sections/?term_id=${selectedTermId}&exam_period_id=${selectedPeriodId}&include_empty=true`
       : ""
   );
   const sections: any[] = sectionsData?.results || sectionsData || [];
@@ -283,7 +290,7 @@ export default function ExamCalendarPage() {
     setFilterYear("Tümü");
     setFilterType("Tümü");
     setSearch("");
-  }, [optTermId, optPeriodId]);
+  }, [selectedTermId, selectedPeriodId]);
 
   const GRAD_PROJECT_KEYWORDS = ["graduation project", "graduation"];
   const INDUSTRIAL_PRACTICE_KEYWORDS = ["industrial practice", "engineering application", "on site", "summer training", "summer practice"];
@@ -318,11 +325,11 @@ export default function ExamCalendarPage() {
   const [bulkLoading, setBulkLoading] = useState<string | null>(null);
 
   const toggleExclusion = async (section: any) => {
-    if (!optPeriodId) return;
+    if (!selectedPeriodId) return;
     setTogglingId(section.id);
     setToggleError(null);
     try {
-      await api.post(`/exam-periods/${optPeriodId}/toggle-exclusion/`, {
+      await api.post(`/exam-periods/${selectedPeriodId}/toggle-exclusion/`, {
         section_id: section.id,
       });
       refetchSections();
@@ -333,7 +340,7 @@ export default function ExamCalendarPage() {
   };
 
   const bulkToggle = async (matchingSections: any[], allExcluded: boolean, key: string) => {
-    if (!optPeriodId) return;
+    if (!selectedPeriodId) return;
     setBulkLoading(key);
     setToggleError(null);
     const targets = allExcluded
@@ -342,7 +349,7 @@ export default function ExamCalendarPage() {
     try {
       await Promise.all(
         targets.map((s: any) =>
-          api.post(`/exam-periods/${optPeriodId}/toggle-exclusion/`, { section_id: s.id })
+          api.post(`/exam-periods/${selectedPeriodId}/toggle-exclusion/`, { section_id: s.id })
         )
       );
       refetchSections();
@@ -418,8 +425,8 @@ export default function ExamCalendarPage() {
         {activeTab === "calendar"
           ? "Sınav haftasını seçin, zaman dilimlerini ve engellenen günleri yönetin."
           : activeTab === "optimization"
-          ? "Sınav takvimine dahil edilecek dersleri seçin ve ders bilgilerini düzenleyin."
-          : "Aynı zaman diliminde yapılacak ders gruplarını tanımlayın ve yönetin."}
+            ? "Sınav takvimine dahil edilecek dersleri seçin ve ders bilgilerini düzenleyin."
+            : "Aynı zaman diliminde yapılacak ders gruplarını tanımlayın ve yönetin."}
       </p>
 
       {/* Tab switcher */}
@@ -428,7 +435,7 @@ export default function ExamCalendarPage() {
           <button
             key={tab}
             type="button"
-            onClick={() => { setActiveTab(tab); if (tab === "optimization") refetchOptPeriods(); }}
+            onClick={() => { setActiveTab(tab); if (tab === "optimization") refetchPeriods(); }}
             style={{
               background: "transparent",
               border: "none",
@@ -732,8 +739,8 @@ export default function ExamCalendarPage() {
                 DÖNEM
               </label>
               <select
-                value={optTermId}
-                onChange={e => setOptTermId(e.target.value)}
+                value={selectedTermId}
+                onChange={e => { setSelectedTermId(e.target.value); setSelectedPeriodId(""); setSlotsLoaded(false); }}
                 style={optSelectStyle}
               >
                 <option value="">— Dönem seçin —</option>
@@ -747,13 +754,13 @@ export default function ExamCalendarPage() {
                 SINAV TAKVİMİ
               </label>
               <select
-                value={optPeriodId}
-                onChange={e => setOptPeriodId(e.target.value)}
-                style={{ ...optSelectStyle, opacity: optPeriods.length === 0 ? 0.5 : 1 }}
-                disabled={!optTermId || optPeriods.length === 0}
+                value={selectedPeriodId}
+                onChange={e => { setSelectedPeriodId(e.target.value); setSlotsLoaded(false); setDeleteConfirmId(null); setDeleteError(""); }}
+                style={{ ...optSelectStyle, opacity: periods.length === 0 ? 0.5 : 1 }}
+                disabled={!selectedTermId || periods.length === 0}
               >
                 <option value="">— Takvim seçin —</option>
-                {optPeriods.map((p: any) => (
+                {periods.map((p: ExamPeriod) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
@@ -768,7 +775,7 @@ export default function ExamCalendarPage() {
           {toggleError && (
             <p style={{ color: "red", fontSize: 12, margin: "0 0 8px" }}>{toggleError}</p>
           )}
-          {optTermId && optPeriodId && (
+          {selectedTermId && selectedPeriodId && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
                 <div style={{ flex: "1 1 200px", minWidth: 0 }}>
@@ -843,28 +850,28 @@ export default function ExamCalendarPage() {
                 </DataCell>
               </DataRow>
             )}
-            {!sectionsLoading && !optTermId && (
+            {!sectionsLoading && !selectedTermId && (
               <DataRow>
                 <DataCell colSpan={7}>
                   <InfoBox msg="Lütfen bir dönem seçin." />
                 </DataCell>
               </DataRow>
             )}
-            {!sectionsLoading && optTermId && !optPeriodId && (
+            {!sectionsLoading && selectedTermId && !selectedPeriodId && (
               <DataRow>
                 <DataCell colSpan={7}>
                   <InfoBox msg="Hariç tutma ayarları sınav takvimine özgüdür. Lütfen bir sınav takvimi seçin." />
                 </DataCell>
               </DataRow>
             )}
-            {!sectionsLoading && optTermId && optPeriodId && sections.length === 0 && (
+            {!sectionsLoading && selectedTermId && selectedPeriodId && sections.length === 0 && (
               <DataRow>
                 <DataCell colSpan={7}>
                   <InfoBox msg="Bu dönemde kayıtlı öğrencisi olan ders bulunamadı." />
                 </DataCell>
               </DataRow>
             )}
-            {!sectionsLoading && optTermId && optPeriodId && sections.length > 0 && filteredSections.length === 0 && (
+            {!sectionsLoading && selectedTermId && selectedPeriodId && sections.length > 0 && filteredSections.length === 0 && (
               <DataRow>
                 <DataCell colSpan={7}>
                   <InfoBox msg="Uygun ders bulunamadı." />
@@ -910,8 +917,8 @@ export default function ExamCalendarPage() {
                   <DataCell>
                     <button
                       type="button"
-                      title={!optPeriodId ? "Hariç tutmak için önce bir sınav takvimi seçin" : undefined}
-                      disabled={togglingId === sec.id || !optPeriodId}
+                      title={!selectedPeriodId ? "Hariç tutmak için önce bir sınav takvimi seçin" : undefined}
+                      disabled={togglingId === sec.id || !selectedPeriodId}
                       onClick={() => toggleExclusion(sec)}
                       style={{
                         width: 36,
@@ -950,7 +957,7 @@ export default function ExamCalendarPage() {
       )}
 
       {/* ── Simultaneous exams tab ────────────────────────────────────────── */}
-      {activeTab === "simultaneous" && <SimultaneousExamsTab termId={optTermId} periodId={optPeriodId} />}
+      {activeTab === "simultaneous" && <SimultaneousExamsTab termId={selectedTermId} periodId={selectedPeriodId} />}
 
       {/* Edit ExamPeriod dialog */}
       <Dialog open={!!editPeriod} onOpenChange={open => { if (!open) setEditPeriod(null); }}>
@@ -1065,11 +1072,11 @@ export default function ExamCalendarPage() {
               />
               {editForm.exam_duration_minutes !== "" &&
                 parseInt(editForm.exam_duration_minutes) % 30 !== 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Yuvarlanır: {editForm.exam_duration_minutes} dk →{" "}
-                  {Math.ceil(parseInt(editForm.exam_duration_minutes) / 30) * 30} dk
-                </p>
-              )}
+                  <p className="text-xs text-muted-foreground">
+                    Yuvarlanır: {editForm.exam_duration_minutes} dk →{" "}
+                    {Math.ceil(parseInt(editForm.exam_duration_minutes) / 30) * 30} dk
+                  </p>
+                )}
             </div>
 
             {editError && <p className="text-sm text-destructive">{editError}</p>}

@@ -11,6 +11,7 @@ export const Badge = ({ status }: { status: string }) => {
     "FEASIBLE (TIME LIMIT)":{ bg: "color-mix(in srgb, var(--status-success) 12%, transparent)",  color: "var(--status-success)",  label: "Çözüldü (Limit)" },
     "FEASIBLE_TIME_LIMIT":  { bg: "color-mix(in srgb, var(--status-success) 12%, transparent)",  color: "var(--status-success)",  label: "Çözüldü (Limit)" },
     PROCESSING:             { bg: "color-mix(in srgb, var(--primary) 12%, transparent)",          color: "var(--primary)",         label: "İşleniyor" },
+    MANUAL_OVERRIDE:        { bg: "color-mix(in srgb, #a855f7 12%, transparent)",                  color: "#a855f7",                label: "Manuel" },
     FAILED:                 { bg: "color-mix(in srgb, var(--status-danger) 12%, transparent)",    color: "var(--status-danger)",   label: "Başarısız" },
     INFEASIBLE:             { bg: "color-mix(in srgb, var(--status-danger) 12%, transparent)",    color: "var(--status-danger)",   label: "Çözümsüz" },
     PENDING:                { bg: "color-mix(in srgb, var(--status-warning) 12%, transparent)",   color: "var(--status-warning)",  label: "Bekliyor" },

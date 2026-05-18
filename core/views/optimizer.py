@@ -256,3 +256,214 @@ class OptimizerViewSet(viewsets.ViewSet):
         solution = get_object_or_404(GeneratedSolution, id=pk)
         solution.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(responses={200: {}})
+    @action(detail=False, methods=['post'], url_path='save-override')
+    def save_override(self, request):
+        original_id = request.data.get('original_id')
+        new_name = request.data.get('name', 'Manuel Takvim')
+        schedule = request.data.get('schedule', [])
+
+        if not original_id or not schedule:
+            return Response({"error": "original_id and schedule are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        original = get_object_or_404(GeneratedSolution, id=original_id)
+
+        new_penalties = []
+        total_penalty_score = 0.0
+
+        try:
+            from ..services.optimizer import OptimizerService
+            svc = OptimizerService(str(original.term_id))
+            conflict_matrix = svc.load_conflict_matrix()
+
+            # Load courses to build unit_key lookup tables
+            courses = svc.load_courses()
+            unit_info = {c['unit_key']: c for c in courses}
+
+            # Build lookup: (code, dept_name) -> unit_key
+            code_dept_to_unit = {}
+            for c in courses:
+                code_dept_to_unit[(c['code'], c['student_dept'])] = c['unit_key']
+
+            # ── Map each schedule row to a unit_key ──────────────────────────
+            slot_to_unit_keys: dict = {}
+            for item in schedule:
+                day = item.get('day') or item.get('date') or ''
+                time = item.get('time') or item.get('start_time') or ''
+                slot_key = (day, time)
+
+                # Priority 1: unit_key already in row
+                unit_key = item.get('unit_key')
+
+                # Priority 2: course_id + student_dept_id
+                if not unit_key:
+                    course_id = str(item.get('course_id', ''))
+                    dept_id = str(item.get('student_dept_id', ''))
+                    if course_id and dept_id:
+                        unit_key = f"{course_id}|{dept_id}"
+
+                # Priority 3: code + dept name
+                if not unit_key:
+                    code = item.get('code') or item.get('course_code') or ''
+                    dept_name = item.get('dept') or item.get('student_dept') or item.get('department') or ''
+                    unit_key = code_dept_to_unit.get((code, dept_name))
+
+                # Priority 4: code alone — take first match
+                if not unit_key:
+                    code = item.get('code') or item.get('course_code') or ''
+                    for c in courses:
+                        if c['code'] == code:
+                            unit_key = c['unit_key']
+                            break
+
+                if unit_key:
+                    if slot_key not in slot_to_unit_keys:
+                        slot_to_unit_keys[slot_key] = []
+                    if unit_key not in slot_to_unit_keys[slot_key]:
+                        slot_to_unit_keys[slot_key].append(unit_key)
+
+            # ── ÇAKIŞMA: same-slot overlap using conflict_matrix ─────────────
+            seen_pairs = set()
+            for (day, time), unit_keys in slot_to_unit_keys.items():
+                for i in range(len(unit_keys)):
+                    for j in range(i + 1, len(unit_keys)):
+                        ua, ub = unit_keys[i], unit_keys[j]
+                        pair = (min(ua, ub), max(ua, ub))
+                        if pair in seen_pairs:
+                            continue
+                        seen_pairs.add(pair)
+
+                        shared = conflict_matrix.get(pair, 0)
+                        if shared > 0:
+                            total_penalty_score += shared * 50
+                            code_a = unit_info.get(ua, {}).get('code', ua.split('|')[0])
+                            code_b = unit_info.get(ub, {}).get('code', ub.split('|')[0])
+                            dept_a = unit_info.get(ua, {}).get('student_dept', '')
+                            dept_b = unit_info.get(ub, {}).get('student_dept', '')
+                            new_penalties.append({
+                                "type": "ÇAKIŞMA",
+                                "desc": f"Öğrenci Çakışması ({shared} öğrenci): {code_a} & {code_b}",
+                                "day": day,
+                                "time": time,
+                                "students": shared,
+                                "course_a": code_a,
+                                "course_b": code_b,
+                                "depts": list({dept_a, dept_b}),
+                            })
+
+            # ── ODA_ÇAKIŞMASI: Same room at the same time slot ───────────────
+            # Group schedule items by (day, time, room)
+            room_slots = {}
+            for item in schedule:
+                day = item.get('day') or item.get('date') or ''
+                time = item.get('time') or item.get('start_time') or ''
+                room = item.get('room') or ''
+                if not day or not time or not room:
+                    continue
+                k = (day, time, room)
+                if k not in room_slots:
+                    room_slots[k] = []
+                room_slots[k].append(item)
+
+            for (day, time, room), items in room_slots.items():
+                if len(items) > 1:
+                    total_penalty_score += 500 * (len(items) - 1)
+                    courses_str = ", ".join(sorted(set(it.get('code', '') for it in items)))
+                    new_penalties.append({
+                        "type": "ODA_ÇAKIŞMASI",
+                        "desc": f"Sınıf Çakışması: {room} odasında aynı saatte birden fazla sınav var ({courses_str})",
+                        "day": day,
+                        "time": time,
+                        "room": room,
+                    })
+
+            # ── KAPASİTE: Sum room capacities of all rooms assigned to the same exam at the same slot ──
+            # Group schedule items by (day, time, code, dept, year)
+            exam_assignments = {}
+            for item in schedule:
+                day = item.get('day') or item.get('date') or ''
+                time = item.get('time') or item.get('start_time') or ''
+                code = item.get('code') or ''
+                dept = item.get('dept') or item.get('student_dept') or item.get('department') or ''
+                year = item.get('year')
+                
+                if not day or not time or not code:
+                    continue
+                    
+                k = (day, time, code, dept, year)
+                if k not in exam_assignments:
+                    exam_assignments[k] = {
+                        "enrolled": item.get('enrolled') or 0,
+                        "rooms": [],
+                        "total_cap": 0
+                    }
+                
+                room_name = item.get('room') or ''
+                room_cap = item.get('room_cap') or item.get('room_capacity') or 0
+                if room_name:
+                    exam_assignments[k]["rooms"].append(f"{room_name} ({room_cap})")
+                    exam_assignments[k]["total_cap"] += room_cap
+
+            for (day, time, code, dept, year), info in exam_assignments.items():
+                enrolled = info["enrolled"]
+                total_cap = info["total_cap"]
+                rooms_list = info["rooms"]
+                
+                if total_cap > 0 and enrolled > total_cap:
+                    excess = enrolled - total_cap
+                    total_penalty_score += excess * 10 + 100
+                    rooms_str = ", ".join(rooms_list)
+                    new_penalties.append({
+                        "type": "KAPASİTE",
+                        "desc": f"Kapasite Aşımı: {code} sınavı için atanan odaların toplam kapasitesi ({total_cap}) yetersiz! {enrolled} öğrenci var ({excess} kişi açıkta). Atanan Odalar: {rooms_str}",
+                        "day": day,
+                        "time": time,
+                        "excess": excess
+                    })
+
+            # ── YAYILIM: multiple exams on the same day for (dept, year) ─────
+            dept_year_day: dict = {}
+            for item in schedule:
+                day = item.get('day') or item.get('date') or ''
+                dept = item.get('dept') or item.get('student_dept') or item.get('department') or ''
+                year = item.get('year')
+                code = item.get('code') or item.get('course_code') or ''
+                if not dept or not day or not code:
+                    continue
+                k = (dept, year, day)
+                if k not in dept_year_day:
+                    dept_year_day[k] = set()
+                dept_year_day[k].add(code)
+
+            for (dept, year, day), codes_set in dept_year_day.items():
+                if len(codes_set) > 1:
+                    total_penalty_score += 200 * (len(codes_set) - 1)
+                    course_str = " ve ".join(sorted(codes_set))
+                    new_penalties.append({
+                        "type": "YAYILIM",
+                        "desc": f"{course_str} dersleri aynı güne ({day}) planlandı.",
+                        "day": day,
+                        "dept": dept,
+                    })
+
+        except Exception:
+            total_penalty_score = 0
+
+        new_solution = GeneratedSolution.objects.create(
+            term=original.term,
+            name=new_name,
+            parameters=original.parameters,
+            status='MANUAL_OVERRIDE',
+            score=round(total_penalty_score, 1),
+            detailed_schedule=schedule,
+            detailed_penalties=new_penalties,
+            solver_metadata={
+                "manual_override": True,
+                "original_solution_id": str(original.id),
+                "conflict_count": len([p for p in new_penalties if p.get("type") == "ÇAKIŞMA"]),
+                "spread_count": len([p for p in new_penalties if p.get("type") == "YAYILIM"]),
+            },
+        )
+
+        return Response({"id": str(new_solution.id), "status": new_solution.status})

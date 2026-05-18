@@ -613,8 +613,8 @@ export default function OptimizerPage() {
           <SL>SOLVER AYARLARI (GUROBI)</SL>
           <div>
             <label style={lStyle}>ZAMAN LİMİTİ (saniye)</label>
-            <input style={iStyle} type="number" min={300} max={900} value={params.time_limit} onChange={e => setParams({ ...params, time_limit: Math.min(900, Math.max(300, +e.target.value)) })} />
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · min 300s (5 dk) · max 900s (15 dk)</div>
+            <input style={iStyle} type="number" min={60} value={params.time_limit || ""} onChange={e => setParams({ ...params, time_limit: e.target.value === "" ? 0 : parseInt(e.target.value, 10) })} />
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi (önerilen min 300s)</div>
           </div>
           <div>
             <label style={lStyle}>MIP GAP TOLERANSI</label>
