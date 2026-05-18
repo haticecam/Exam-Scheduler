@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import SimultaneousExamsTab from "./SimultaneousExamsTab";
+import { useTermVersion } from "@/lib/term-context";
 
 type ExamPeriod = {
   id: string;
@@ -67,8 +68,10 @@ export default function ExamCalendarPage() {
   const [activeTab, setActiveTab] = useState<"calendar" | "optimization" | "simultaneous">("calendar");
 
   /* ── Shared: terms list ─────────────────────────────────────────────────── */
-  const { data: termsData } = useFetch("/terms/");
+  const { termVersion } = useTermVersion();
+  const { data: termsData } = useFetch("/terms/", [termVersion]);
   const terms: any[] = termsData?.results || termsData || [];
+  const activeTerm = terms.find((t: any) => t.status === "Active") ?? null;
 
   /* ── Calendar tab state ─────────────────────────────────────────────────── */
   const [selectedTermId, setSelectedTermId] = useState("");
@@ -248,11 +251,16 @@ export default function ExamCalendarPage() {
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   React.useEffect(() => {
-    if (terms.length > 0 && !optTermId) {
-      const active = terms.find((t: any) => t.status === "Active") || terms[0];
-      if (active) setOptTermId(String(active.id));
-    }
-  }, [terms.length]);
+    if (!activeTerm) return;
+    const id = String(activeTerm.id);
+    setSelectedTermId(prev => {
+      if (prev === id) return prev;
+      setSelectedPeriodId("");
+      setSlotsLoaded(false);
+      return id;
+    });
+    setOptTermId(prev => (prev === id ? prev : id));
+  }, [activeTerm?.id]);
 
   const { data: optPeriodsData, refetch: refetchOptPeriods } = useFetch(
     optTermId ? `/exam-periods/?term_id=${optTermId}` : ""
@@ -455,11 +463,11 @@ export default function ExamCalendarPage() {
               <SL>DÖNEM & TAKVİM SEÇİMİ</SL>
               <div style={{ marginBottom: 14 }}>
                 <label style={lStyle}>AKTİF DÖNEM</label>
-                <select style={{ ...iStyle, cursor: "pointer" }} value={selectedTermId}
-                  onChange={e => { setSelectedTermId(e.target.value); setSelectedPeriodId(""); setSlotsLoaded(false); }}>
-                  <option value="">— Dönem seçin —</option>
-                  {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+                <div style={{ ...iStyle, cursor: "default", display: "flex", alignItems: "center", minHeight: 38 }}>
+                  {activeTerm
+                    ? activeTerm.name
+                    : <span style={{ color: C.textMuted }}>Aktif dönem bulunamadı — Dönem Yönetimi&apos;nden bir dönem aktifleştirin.</span>}
+                </div>
               </div>
               {periods.length > 0 && (
                 <div>
@@ -729,18 +737,13 @@ export default function ExamCalendarPage() {
           <div style={{ display: "flex", gap: 16 }}>
             <div style={{ flex: 1, maxWidth: 320 }}>
               <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>
-                DÖNEM
+                AKTİF DÖNEM
               </label>
-              <select
-                value={optTermId}
-                onChange={e => setOptTermId(e.target.value)}
-                style={optSelectStyle}
-              >
-                <option value="">— Dönem seçin —</option>
-                {terms.map((t: any) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
+              <div style={{ ...optSelectStyle, display: "flex", alignItems: "center", cursor: "default", minHeight: 38 }}>
+                {activeTerm
+                  ? activeTerm.name
+                  : <span style={{ color: C.textMuted }}>Aktif dönem bulunamadı</span>}
+              </div>
             </div>
             <div style={{ flex: 1, maxWidth: 320 }}>
               <label style={{ display: "block", fontSize: 10, color: C.textMuted, marginBottom: 8, ...mono }}>
@@ -835,38 +838,38 @@ export default function ExamCalendarPage() {
               </div>
             </div>
           )}
-          <DataTable headers={["Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Sınav Süresi", "Hariç Tut", ""]}>
+          <DataTable headers={["Şube", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Sınav Süresi", "Hariç Tut", ""]}>
             {sectionsLoading && (
               <DataRow>
-                <DataCell colSpan={7} style={{ textAlign: "center", padding: 40 }}>
+                <DataCell colSpan={8} style={{ textAlign: "center", padding: 40 }}>
                   <Spinner size={20} />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && !optTermId && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Lütfen bir dönem seçin." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && !optPeriodId && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Hariç tutma ayarları sınav takvimine özgüdür. Lütfen bir sınav takvimi seçin." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && optPeriodId && sections.length === 0 && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Bu dönemde kayıtlı öğrencisi olan ders bulunamadı." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && optPeriodId && sections.length > 0 && filteredSections.length === 0 && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Uygun ders bulunamadı." />
                 </DataCell>
               </DataRow>
@@ -880,6 +883,7 @@ export default function ExamCalendarPage() {
                   key={sec.id}
                   style={{ opacity: sec.excluded_from_optimization ? 0.4 : 1, transition: "opacity 150ms" }}
                 >
+                  <DataCell style={{ color: C.textSub, ...mono, fontSize: 12 }}>{sec.section_code ?? "—"}</DataCell>
                   <DataCell style={{ color: C.cyan, ...mono, fontWeight: 600 }}>{sec.course_code}</DataCell>
                   <DataCell>{sec.course_name}</DataCell>
                   <DataCell style={{ color: C.textSub, fontSize: 12 }}>

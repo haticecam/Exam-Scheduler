@@ -127,13 +127,14 @@ export function useFetch(path: string, extraDeps: unknown[] = []) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refetch = useCallback(() => {
+  const refetch = useCallback((opts?: { silent?: boolean }) => {
     if (!path) { setLoading(false); return; }
-    setLoading(true);
+    const silent = opts?.silent ?? false;
+    if (!silent) setLoading(true);
     api.get(path)
       .then(d => { setData(d); setError(null); })
       .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   }, [path]);
 
   useEffect(() => { refetch(); }, [refetch, ...extraDeps]);

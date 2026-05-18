@@ -57,6 +57,7 @@ export const ErrorBox = ({ msg }: { msg: string }) => (
     padding: "12px 16px",
     color: "var(--status-danger)",
     fontSize: "0.875rem",
+    whiteSpace: "pre-line",
   }}>
     ✕  {msg}
   </div>
@@ -234,12 +235,14 @@ export function CSVUploader({
   templateCols,
   onSuccess,
   extraData,
+  accept = ".csv,.xlsx",
 }: {
   title: string;
   endpoint: string;
   templateCols: string[];
   onSuccess?: () => void;
   extraData?: Record<string, string>;
+  accept?: string;
 }) {
   const [drag, setDrag] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -248,10 +251,17 @@ export function CSVUploader({
   const [errMsg, setErrMsg] = useState("");
   const ref = useRef<HTMLInputElement>(null);
 
+  const acceptedExts = accept
+    .split(",")
+    .map(s => s.trim().replace(/^\./, ""))
+    .filter(Boolean);
+  const extRegex = new RegExp(`\\.(${acceptedExts.join("|")})$`, "i");
+  const acceptedLabel = acceptedExts.map(e => e.toUpperCase()).join(" veya ");
+
   const pick = (f: File | null) => {
     if (!f) return;
-    if (!f.name.match(/\.(csv|xlsx)$/i)) {
-      setErrMsg("Sadece .csv veya .xlsx dosyası kabul edilir.");
+    if (!f.name.match(extRegex)) {
+      setErrMsg(`Sadece ${acceptedExts.map(e => `.${e}`).join(" veya ")} dosyası kabul edilir.`);
       setSt("error");
       return;
     }
@@ -325,7 +335,7 @@ export function CSVUploader({
           transition: "border-color 140ms ease-out",
         }}
       >
-        <input ref={ref} type="file" accept=".csv,.xlsx" style={{ display: "none" }} onChange={e => pick(e.target.files?.[0] ?? null)} />
+        <input ref={ref} type="file" accept={accept} style={{ display: "none" }} onChange={e => pick(e.target.files?.[0] ?? null)} />
         {file
           ? (
             <div style={{ color: "var(--primary)", fontSize: "0.875rem", fontWeight: 600 }}>
@@ -337,7 +347,7 @@ export function CSVUploader({
             <>
               <div style={{ fontSize: 28, marginBottom: 10, color: "var(--on-surface-variant)" }}>↑</div>
               <div style={{ color: "var(--on-surface)", fontSize: "0.875rem", fontWeight: 600, marginBottom: 4 }}>Dosyayı sürükleyip bırakın veya tıklayın</div>
-              <div style={{ color: "var(--on-surface-variant)", fontSize: "0.75rem" }}>CSV veya XLSX · Maks 50 MB</div>
+              <div style={{ color: "var(--on-surface-variant)", fontSize: "0.75rem" }}>{acceptedLabel} · Maks 50 MB</div>
             </>
           )
         }
