@@ -6,6 +6,7 @@ import { CalendarIcon } from "lucide-react";
 import type { DateRange } from "react-day-picker";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
+import { useTermVersion } from "@/lib/term-context";
 import { Card, Badge, Spinner, PageContainer, PageHeader, ActionButton } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
@@ -89,6 +90,7 @@ function DateRangePicker({
 
 /* ── Page ─────────────────────────────────────────────────────────────────── */
 export default function TermsPage() {
+  const { bumpTermVersion } = useTermVersion();
   const { data, error, loading: isLoading, refetch: mutate } = useFetch("/terms/");
   const terms = data?.results || data || [];
 
@@ -133,6 +135,7 @@ export default function TermsPage() {
         date_range: rangeToString(addRange) || null,
       });
       mutate();
+      bumpTermVersion();
       setAddOpen(false);
       setAddName("");
       setAddRange(undefined);
@@ -154,6 +157,7 @@ export default function TermsPage() {
         date_range: rangeToString(editRange) || null,
       });
       mutate();
+      bumpTermVersion();
       setEditTerm(null);
     } catch (err: unknown) {
       const e = err as { message?: string };
@@ -169,6 +173,7 @@ export default function TermsPage() {
     try {
       await api.patch(`/terms/${activateTarget.id}/`, { status: "Active" });
       mutate();
+      bumpTermVersion();
       setActivateTarget(null);
     } catch {
       setActivateTarget(null);
@@ -183,6 +188,7 @@ export default function TermsPage() {
     try {
       await api.delete(`/terms/${deleteTarget.id}/`);
       mutate();
+      bumpTermVersion();
       setDeleteTarget(null);
     } catch {
       setDeleteTarget(null);

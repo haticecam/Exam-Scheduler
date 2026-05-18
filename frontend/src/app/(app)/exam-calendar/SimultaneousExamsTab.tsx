@@ -95,28 +95,37 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const [filterType, setFilterType] = useState("Tümü");
   const [search, setSearch] = useState("");
 
-  // A course code is only a sensible candidate for a simultaneous-exam group
-  // when it exists under 2+ different departments. Exclusions don't count.
+  // A course code is a candidate for a simultaneous-exam group whenever it has
+  // 2+ section rows — either across departments (e.g. MATH101 in ELEKTRIK + MET-MALZ)
+  // or as multiple Şube within a single department (e.g. ENGR265 Şube 1/2/3).
+  // Exclusions don't count.
   const duplicateCodes = React.useMemo(() => {
-    const byCode = new Map<string, Set<string>>();
+    const countByCode = new Map<string, number>();
     for (const s of sections as any[]) {
       if (s.excluded_from_optimization) continue;
-      if (!s.course_code || !s.academic_unit_id) continue;
-      let depts = byCode.get(s.course_code);
-      if (!depts) { depts = new Set(); byCode.set(s.course_code, depts); }
-      depts.add(String(s.academic_unit_id));
+      if (!s.course_code) continue;
+      countByCode.set(s.course_code, (countByCode.get(s.course_code) ?? 0) + 1);
     }
     const out = new Set<string>();
-    for (const [code, depts] of byCode) {
-      if (depts.size >= 2) out.add(code);
+    for (const [code, n] of countByCode) {
+      if (n >= 2) out.add(code);
     }
     return out;
   }, [sections]);
+
+  // Courses already in any simultaneous group are hidden from the candidate
+  // list so they cannot be re-grouped. Deleting the group restores them.
+  const groupedCourseIds = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const g of groups) for (const c of g.courses) s.add(String(c.course_id));
+    return s;
+  }, [groups]);
 
   const filtered = sections
     .filter((s: any) => {
       if (s.excluded_from_optimization) return false;
       if (!duplicateCodes.has(s.course_code)) return false;
+      if (groupedCourseIds.has(String(s.course_id))) return false;
       if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
       if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
       if (filterType !== "Tümü" && s.requirement !== filterType) return false;
@@ -612,15 +621,15 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
               </div>
             </div>
 
-            <DataTable headers={["", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Tür"]}>
+            <DataTable headers={["", "Şube", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Tür"]}>
               {sectionsLoading && (
                 <DataRow>
-                  <DataCell colSpan={6} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell>
+                  <DataCell colSpan={7} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell>
                 </DataRow>
               )}
               {!sectionsLoading && filtered.length === 0 && (
                 <DataRow>
-                  <DataCell colSpan={6}><InfoBox msg="Bölümler arası aynı koda sahip ders bulunamadı." /></DataCell>
+                  <DataCell colSpan={7}><InfoBox msg="Aynı koda sahip birden fazla şube bulunamadı." /></DataCell>
                 </DataRow>
               )}
               {filtered.map((sec: any) => {
@@ -642,6 +651,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                         onClick={e => e.stopPropagation()}
                       />
                     </DataCell>
+                    <DataCell style={{ color: C.textSub, ...mono, fontSize: 12 }}>{sec.section_code ?? "—"}</DataCell>
                     <DataCell style={{ color: C.cyan, ...mono, fontWeight: 600 }}>{sec.course_code}</DataCell>
                     <DataCell>{sec.course_name}</DataCell>
                     <DataCell style={{ color: C.textSub, fontSize: 12 }}>

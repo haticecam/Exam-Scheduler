@@ -86,13 +86,13 @@ class CourseSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseSection
         fields = [
-            'id', 'course_id', 'course_code', 'course_name',
+            'id', 'section_code', 'course_id', 'course_code', 'course_name',
             'year_level', 'academic_unit_name', 'academic_unit_id',
             'requirement', 'exam_duration_minutes',
             'weekly_hours_lecture', 'excluded_from_optimization',
         ]
         read_only_fields = [
-            'id', 'course_id', 'course_code', 'course_name',
+            'id', 'section_code', 'course_id', 'course_code', 'course_name',
             'year_level', 'academic_unit_name', 'academic_unit_id',
             'requirement', 'exam_duration_minutes',
             'weekly_hours_lecture', 'excluded_from_optimization',
@@ -103,7 +103,7 @@ class OptimizeRequestSerializer(serializers.Serializer):
     term_id = serializers.UUIDField(help_text="Required Term ID")
     name = serializers.CharField(max_length=255, required=False, help_text="Label for this solution run (e.g. 'Fall 2025 Test 1')")
     hard_threshold = serializers.IntegerField(default=5, min_value=0, max_value=10000, help_text="Shared student count above which two courses are hard-conflicted.")
-    time_limit = serializers.IntegerField(default=600, min_value=300, max_value=900, allow_null=False, required=False, help_text="Gurobi time limit in seconds. Min 300 (5 min), max 900 (15 min).")
+    time_limit = serializers.IntegerField(default=300, min_value=1, allow_null=False, required=False, help_text="Gurobi time limit in seconds. Default 300 (5 min).")
     mip_gap = serializers.FloatField(default=0.10, min_value=0.0, max_value=1.0, help_text="MIP gap tolerance (0.10 = 10%)")
     no_back_to_back = serializers.BooleanField(default=False, help_text="Prevent consecutive exams for same dept/year (hard constraint).")
     exam_days = serializers.IntegerField(default=5, min_value=1, max_value=60, help_text="Total exam days to spread across.")

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
-import { Card, SL, Spinner, InfoBox, PageContainer, PageHeader, DataTable, DataRow, DataCell, ActionButton } from "@/components/ui";
+import { Card, SL, Spinner, InfoBox, PageContainer, PageHeader, DataTable, DataRow, DataCell, ActionButton, CSVUploader } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -177,6 +177,16 @@ export default function RoomsPage() {
       />
 
       <div style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: 24, alignItems: "start" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <Card style={{ padding: 24 }}>
+          <CSVUploader
+            title="Excel Dosyasından Toplu Oda Ekle"
+            endpoint="/resources/upload/"
+            templateCols={["Oda Adı", "Kapasite", "Tür", "Sınav Kapasitesi"]}
+            accept=".xlsx"
+            onSuccess={refetch}
+          />
+        </Card>
         <Card style={{ padding: 24 }}>
           <SL>YENİ ODA EKLE</SL>
           <form onSubmit={handleCreate} style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 16 }}>
@@ -265,6 +275,7 @@ export default function RoomsPage() {
             </ActionButton>
           </form>
         </Card>
+        </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <DataTable headers={["Oda Adı", "Tür", "Kapasite", "Sınav Kap.", "Müsaitlik", "İşlemler"]}>

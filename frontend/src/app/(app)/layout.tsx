@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Topbar from "@/components/Topbar";
 import { useAuth } from "@/lib/auth";
+import { TermProvider } from "@/lib/term-context";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -20,14 +21,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      <Sidebar />
-      <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-        <Topbar />
-        <div style={{ padding: "32px 36px", flex: 1 }}>
-          {children}
-        </div>
-      </main>
-    </div>
+    <TermProvider>
+      <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+        <Sidebar />
+        <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          <Topbar />
+          <div style={{ padding: "32px 36px", flex: 1 }}>
+            {children}
+          </div>
+        </main>
+      </div>
+    </TermProvider>
   );
 }
