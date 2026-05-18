@@ -200,7 +200,7 @@ class XlsxEnrollmentLoaderService:
 
     def _load_rows(self, data_rows, idx_student, idx_program, idx_year,
                    section, term, org, unit_map, filename) -> dict:
-        unknown_programs: set[str] = set()
+        unknown_students_by_program: dict[str, set[str]] = defaultdict(set)
         student_infos: dict[str, dict] = {}
 
         for row in data_rows:
@@ -216,23 +216,24 @@ class XlsxEnrollmentLoaderService:
 
             unit = unit_map.get(program_norm)
             if unit is None:
-                unknown_programs.add(program_raw)
+                unknown_students_by_program[program_raw or '<EMPTY>'].add(identifier)
                 continue
 
             student_infos[identifier] = {'unit': unit, 'year_level': year_level}
 
-        if unknown_programs:
-            return {
-                "file": filename,
-                "error": (
-                    f"Unknown program name(s): {sorted(unknown_programs)}. "
-                    f"Ensure AcademicUnit names match these values (ignoring trailing punctuation)."
-                )
-            }
+        unknown_breakdown = {p: len(ids) for p, ids in unknown_students_by_program.items()}
+        unknown_students_total = sum(unknown_breakdown.values())
 
         if not student_infos:
-            return {"file": filename, "students_created": 0, "enrollments_created": 0,
-                    "warning": "No valid rows found in file."}
+            return {
+                "file": filename,
+                "course_code": section.course.code,
+                "students_created": 0,
+                "enrollments_created": 0,
+                "skipped_unknown_program_students": unknown_students_total,
+                "unknown_programs_breakdown": unknown_breakdown,
+                "warning": "No valid rows with a known program were found in this file.",
+            }
 
         group_map: dict[tuple, StudentGroup] = {}
         for info in student_infos.values():
@@ -307,4 +308,6 @@ class XlsxEnrollmentLoaderService:
             "course_code": section.course.code,
             "students_created": len(to_create),
             "enrollments_created": len(enrollments_to_create),
+            "skipped_unknown_program_students": unknown_students_total,
+            "unknown_programs_breakdown": unknown_breakdown,
         }

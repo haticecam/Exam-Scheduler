@@ -125,19 +125,53 @@ def test_service_unknown_course_code_returns_error(base_data):
 
 
 @pytest.mark.django_db
-def test_service_unknown_program_returns_error(base_data):
-    """If a row's Program doesn't match any AcademicUnit, the whole file returns an error."""
+def test_service_unknown_program_rows_are_skipped_with_count(base_data):
+    """Rows whose Program doesn't match any AcademicUnit are skipped (not enrolled), but
+    the count of such unique students is preserved in the result so the UI can surface it."""
     xlsx_bytes = make_xlsx([
         HEADER,
-        ['24050141033', 'UNKNOWN DEPT', 1, 'Arş.Gör. TEST', 'Alttan FF'],
+        ['24050141033', 'BİLGİSAYAR MÜH', 1, 'Arş.Gör. TEST', 'Alttan FF'],
+        ['STU00099', 'UNKNOWN DEPT', 1, 'Arş.Gör. TEST', 'Alttan FF'],
+        ['STU00100', 'UNKNOWN DEPT', 1, 'Arş.Gör. TEST', 'Alttan FF'],
+        ['STU00101', 'ANOTHER UNKNOWN', 2, 'Arş.Gör. TEST', 'Alttan FF'],
     ])
     svc = XlsxEnrollmentLoaderService()
     result = svc.process_files(
         [('CENG113.xlsx', xlsx_bytes)],
         str(base_data['term'].id)
     )
-    assert 'error' in result['results'][0]
-    assert 'UNKNOWN DEPT' in result['results'][0]['error']
+    file_result = result['results'][0]
+    assert 'error' not in file_result, file_result.get('error')
+    assert file_result['students_created'] == 1
+    assert file_result['enrollments_created'] == 1
+    assert file_result['skipped_unknown_program_students'] == 3
+    assert file_result['unknown_programs_breakdown'] == {
+        'UNKNOWN DEPT': 2,
+        'ANOTHER UNKNOWN': 1,
+    }
+    assert Student.objects.filter(organization=base_data['org']).count() == 1
+    assert Enrollment.objects.filter(section=base_data['section']).count() == 1
+
+
+@pytest.mark.django_db
+def test_service_all_unknown_programs_loads_nothing(base_data):
+    """If every row's Program is unknown, no students/enrollments are created
+    but the file does not error and counts are reported."""
+    xlsx_bytes = make_xlsx([
+        HEADER,
+        ['STU00099', 'UNKNOWN DEPT', 1, 'Arş.Gör. TEST', 'Alttan FF'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    result = svc.process_files(
+        [('CENG113.xlsx', xlsx_bytes)],
+        str(base_data['term'].id)
+    )
+    file_result = result['results'][0]
+    assert 'error' not in file_result
+    assert file_result['students_created'] == 0
+    assert file_result['enrollments_created'] == 0
+    assert file_result['skipped_unknown_program_students'] == 1
+    assert file_result['unknown_programs_breakdown'] == {'UNKNOWN DEPT': 1}
 
 
 @pytest.mark.django_db
