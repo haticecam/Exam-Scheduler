@@ -713,17 +713,61 @@ export default function OptimizerPage() {
 
           {/* Hide time-grid fields when calendar is active — it provides these values */}
           {!examPeriodId && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-              {[
-                { label: "SINAV GÜN SAYISI", key: "exam_days" },
-                { label: "GÜN BAŞI SLOT (30dk)", key: "slots_per_day" },
-                { label: "BAŞLANGIÇ SAATİ", key: "start_hour" },
-              ].map(f => (
-                <div key={f.key}>
-                  <label style={lStyle}>{f.label}</label>
-                  <NumberInput style={iStyle} value={params[f.key as keyof typeof params] as number} onChange={n => setParams({ ...params, [f.key]: n })} />
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={lStyle}>SINAV GÜN SAYISI</label>
+                  <NumberInput style={iStyle} min={1} value={params.exam_days} onChange={n => setParams({ ...params, exam_days: n })} />
                 </div>
-              ))}
+                <div>
+                  <label style={lStyle}>BAŞLANGIÇ ZAMANI</label>
+                  <input
+                    type="time"
+                    style={iStyle}
+                    value={manualStart}
+                    onChange={e => setManualStart(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label style={lStyle}>BİTİŞ ZAMANI</label>
+                  <input
+                    type="time"
+                    style={iStyle}
+                    value={manualEnd}
+                    onChange={e => setManualEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12 }}>
+                <div>
+                  <label style={lStyle}>SLOT SÜRESİ (DAKİKA)</label>
+                  <input
+                    type="number"
+                    min={30}
+                    max={480}
+                    step={30}
+                    style={iStyle}
+                    value={manualSlotDuration}
+                    onChange={e => setManualSlotDuration(Math.max(30, Number(e.target.value)))}
+                  />
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end", paddingBottom: 2 }}>
+                  {(() => {
+                    const { start_hour, slots_per_day } = computeSlotParams(manualStart, manualEnd, manualSlotDuration);
+                    const examCapacity = Math.floor(slots_per_day / Math.round(manualSlotDuration / 30));
+                    const startEffective = `${String(start_hour).padStart(2, "0")}:30`;
+                    return (
+                      <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.7 }}>
+                        <span style={{ color: C.text, fontWeight: 600 }}>{slots_per_day}</span> slot/gün
+                        <span style={{ margin: "0 6px", color: C.border }}>·</span>
+                        {startEffective} başlangıç
+                        <span style={{ margin: "0 6px", color: C.border }}>·</span>
+                        günde <span style={{ color: C.text, fontWeight: 600 }}>{examCapacity}</span> sınav kapasitesi
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
             </div>
           )}
 
