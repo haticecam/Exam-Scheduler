@@ -448,6 +448,11 @@ class OptimizerViewSet(viewsets.ViewSet):
                     })
 
         except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Penalty recalculation failed for override of solution %s", original_id
+            )
+            new_penalties = []
             total_penalty_score = 0
 
         new_solution = GeneratedSolution.objects.create(

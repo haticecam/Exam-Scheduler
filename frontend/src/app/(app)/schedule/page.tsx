@@ -27,6 +27,7 @@ function ScheduleContent() {
   const [saveLoading, setSaveLoading] = React.useState(false);
   const [showSaveNameModal, setShowSaveNameModal] = React.useState(false);
   const [saveNameInput, setSaveNameInput] = React.useState("");
+  const [saveError, setSaveError] = React.useState("");
   const [editModalCourse, setEditModalCourse] = React.useState<{
     code: string;
     name: string;
@@ -167,6 +168,27 @@ function ScheduleContent() {
     tableHtml += `</tbody></table><script>window.print();</script></body></html>`;
     printWindow.document.write(tableHtml);
     printWindow.document.close();
+  };
+
+  const handleSave = async () => {
+    if (!saveNameInput.trim()) { setSaveError("Lütfen bir isim girin."); return; }
+    if (saveLoading) return;
+    setSaveLoading(true);
+    setSaveError("");
+    try {
+      const res = await api.post("/optimize/save-override/", {
+        original_id: bestSol.id,
+        name: saveNameInput.trim(),
+        schedule: editableAssignments,
+      });
+      setIsEditing(false);
+      setShowSaveNameModal(false);
+      router.push(`/schedule?id=${res.id}`);
+    } catch {
+      setSaveError("Kaydetme başarısız. Lütfen tekrar deneyin.");
+    } finally {
+      setSaveLoading(false);
+    }
   };
 
   const selectStyle = {
@@ -412,7 +434,7 @@ function ScheduleContent() {
       )}
 
       {/* Save Name Modal */}
-      <Dialog open={showSaveNameModal} onOpenChange={(open) => { if (!open) setShowSaveNameModal(false); }}>
+      <Dialog open={showSaveNameModal} onOpenChange={(open) => { if (!open) { setShowSaveNameModal(false); setSaveError(""); } }}>
         <DialogContent style={{ background: C.surface, borderColor: C.border, color: C.text, maxWidth: 440 }}>
           <DialogHeader>
             <DialogTitle style={{ ...mono }}>Takvimi Kaydet</DialogTitle>
@@ -423,25 +445,7 @@ function ScheduleContent() {
               type="text"
               value={saveNameInput}
               onChange={e => setSaveNameInput(e.target.value)}
-              onKeyDown={async e => {
-                if (e.key === "Enter" && saveNameInput.trim()) {
-                  setShowSaveNameModal(false);
-                  setSaveLoading(true);
-                  try {
-                    const res = await api.post("/optimize/save-override/", {
-                      original_id: bestSol.id,
-                      name: saveNameInput.trim(),
-                      schedule: editableAssignments,
-                    });
-                    setIsEditing(false);
-                    window.location.href = `/schedule?id=${res.id}`;
-                  } catch {
-                    alert("Kaydetme başarısız.");
-                  } finally {
-                    setSaveLoading(false);
-                  }
-                }
-              }}
+              onKeyDown={e => { if (e.key === "Enter") handleSave(); }}
               placeholder="Örn: Final Dönemi (Düzeltilmiş)"
               style={{
                 width: "100%",
@@ -458,31 +462,16 @@ function ScheduleContent() {
               autoFocus
             />
             <p style={{ fontSize: 11, color: C.textMuted, margin: 0 }}>Bu isimle yeni bir takvim oluşturulacak ve Çözümler listesinde görünecektir.</p>
+            {saveError && <p style={{ fontSize: 12, color: "var(--status-danger)", margin: 0 }}>{saveError}</p>}
           </div>
           <DialogFooter style={{ marginTop: 24 }}>
-            <ActionButton variant="secondary" onClick={() => setShowSaveNameModal(false)}>İptal</ActionButton>
+            <ActionButton variant="secondary" onClick={() => { setShowSaveNameModal(false); setSaveError(""); }}>İptal</ActionButton>
             <ActionButton
               variant="primary"
-              onClick={async () => {
-                if (!saveNameInput.trim()) { alert("Lütfen bir isim girin."); return; }
-                setShowSaveNameModal(false);
-                setSaveLoading(true);
-                try {
-                  const res = await api.post("/optimize/save-override/", {
-                    original_id: bestSol.id,
-                    name: saveNameInput.trim(),
-                    schedule: editableAssignments,
-                  });
-                  setIsEditing(false);
-                  window.location.href = `/schedule?id=${res.id}`;
-                } catch {
-                  alert("Kaydetme başarısız.");
-                } finally {
-                  setSaveLoading(false);
-                }
-              }}
+              disabled={saveLoading}
+              onClick={handleSave}
             >
-              {saveLoading ? "Kaydediliyor..." : " Kaydet"}
+              {saveLoading ? "Kaydediliyor..." : "Kaydet"}
             </ActionButton>
           </DialogFooter>
         </DialogContent>
