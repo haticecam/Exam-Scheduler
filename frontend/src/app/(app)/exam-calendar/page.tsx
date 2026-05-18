@@ -835,38 +835,38 @@ export default function ExamCalendarPage() {
               </div>
             </div>
           )}
-          <DataTable headers={["Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Sınav Süresi", "Hariç Tut", ""]}>
+          <DataTable headers={["Şube", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Sınav Süresi", "Hariç Tut", ""]}>
             {sectionsLoading && (
               <DataRow>
-                <DataCell colSpan={7} style={{ textAlign: "center", padding: 40 }}>
+                <DataCell colSpan={8} style={{ textAlign: "center", padding: 40 }}>
                   <Spinner size={20} />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && !optTermId && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Lütfen bir dönem seçin." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && !optPeriodId && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Hariç tutma ayarları sınav takvimine özgüdür. Lütfen bir sınav takvimi seçin." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && optPeriodId && sections.length === 0 && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Bu dönemde kayıtlı öğrencisi olan ders bulunamadı." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && optPeriodId && sections.length > 0 && filteredSections.length === 0 && (
               <DataRow>
-                <DataCell colSpan={7}>
+                <DataCell colSpan={8}>
                   <InfoBox msg="Uygun ders bulunamadı." />
                 </DataCell>
               </DataRow>
@@ -880,6 +880,7 @@ export default function ExamCalendarPage() {
                   key={sec.id}
                   style={{ opacity: sec.excluded_from_optimization ? 0.4 : 1, transition: "opacity 150ms" }}
                 >
+                  <DataCell style={{ color: C.textSub, ...mono, fontSize: 12 }}>{sec.section_code ?? "—"}</DataCell>
                   <DataCell style={{ color: C.cyan, ...mono, fontWeight: 600 }}>{sec.course_code}</DataCell>
                   <DataCell>{sec.course_name}</DataCell>
                   <DataCell style={{ color: C.textSub, fontSize: 12 }}>

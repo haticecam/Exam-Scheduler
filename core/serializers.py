@@ -86,13 +86,13 @@ class CourseSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CourseSection
         fields = [
-            'id', 'course_id', 'course_code', 'course_name',
+            'id', 'section_code', 'course_id', 'course_code', 'course_name',
             'year_level', 'academic_unit_name', 'academic_unit_id',
             'requirement', 'exam_duration_minutes',
             'weekly_hours_lecture', 'excluded_from_optimization',
         ]
         read_only_fields = [
-            'id', 'course_id', 'course_code', 'course_name',
+            'id', 'section_code', 'course_id', 'course_code', 'course_name',
             'year_level', 'academic_unit_name', 'academic_unit_id',
             'requirement', 'exam_duration_minutes',
             'weekly_hours_lecture', 'excluded_from_optimization',

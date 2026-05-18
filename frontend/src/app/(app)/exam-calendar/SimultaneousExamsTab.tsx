@@ -612,15 +612,15 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
               </div>
             </div>
 
-            <DataTable headers={["", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Tür"]}>
+            <DataTable headers={["", "Şube", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Tür"]}>
               {sectionsLoading && (
                 <DataRow>
-                  <DataCell colSpan={6} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell>
+                  <DataCell colSpan={7} style={{ textAlign: "center", padding: 40 }}><Spinner size={20} /></DataCell>
                 </DataRow>
               )}
               {!sectionsLoading && filtered.length === 0 && (
                 <DataRow>
-                  <DataCell colSpan={6}><InfoBox msg="Bölümler arası aynı koda sahip ders bulunamadı." /></DataCell>
+                  <DataCell colSpan={7}><InfoBox msg="Bölümler arası aynı koda sahip ders bulunamadı." /></DataCell>
                 </DataRow>
               )}
               {filtered.map((sec: any) => {
@@ -642,6 +642,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                         onClick={e => e.stopPropagation()}
                       />
                     </DataCell>
+                    <DataCell style={{ color: C.textSub, ...mono, fontSize: 12 }}>{sec.section_code ?? "—"}</DataCell>
                     <DataCell style={{ color: C.cyan, ...mono, fontWeight: 600 }}>{sec.course_code}</DataCell>
                     <DataCell>{sec.course_name}</DataCell>
                     <DataCell style={{ color: C.textSub, fontSize: 12 }}>
