@@ -113,10 +113,19 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     return out;
   }, [sections]);
 
+  // Courses already in any simultaneous group are hidden from the candidate
+  // list so they cannot be re-grouped. Deleting the group restores them.
+  const groupedCourseIds = React.useMemo(() => {
+    const s = new Set<string>();
+    for (const g of groups) for (const c of g.courses) s.add(String(c.course_id));
+    return s;
+  }, [groups]);
+
   const filtered = sections
     .filter((s: any) => {
       if (s.excluded_from_optimization) return false;
       if (!duplicateCodes.has(s.course_code)) return false;
+      if (groupedCourseIds.has(String(s.course_id))) return false;
       if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
       if (filterYear !== "Tümü" && String(s.year_level) !== filterYear) return false;
       if (filterType !== "Tümü" && s.requirement !== filterType) return false;
