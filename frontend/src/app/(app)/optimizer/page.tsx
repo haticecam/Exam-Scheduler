@@ -127,6 +127,16 @@ function NumberInput({
   );
 }
 
+function computeSlotParams(start: string, end: string, slotDuration: number): { start_hour: number; slots_per_day: number } {
+  const startHour = parseInt(start.split(":")[0], 10);
+  const [endH, endM] = end.split(":").map(Number);
+  const endMin = endH * 60 + endM;
+  const availableMin = endMin - (startHour * 60 + 30);
+  const slotsPerUnit = Math.round(slotDuration / 30);
+  const slots_per_day = Math.max(1, Math.floor(availableMin / slotDuration) * slotsPerUnit);
+  return { start_hour: startHour, slots_per_day };
+}
+
 export default function OptimizerPage() {
   const router = useRouter();
   const { termVersion } = useTermVersion();
@@ -142,6 +152,9 @@ export default function OptimizerPage() {
   });
 
   const [examPeriodId, setExamPeriodId] = useState<string>("");
+  const [manualStart, setManualStart] = useState("08:30");
+  const [manualEnd, setManualEnd] = useState("18:30");
+  const [manualSlotDuration, setManualSlotDuration] = useState(30);
 
   useEffect(() => {
     if (!activeTerm) return;
@@ -244,7 +257,8 @@ export default function OptimizerPage() {
       setAppliedChanges(null);
       setPendingKwargs(null);
 
-      const { name, ...rest } = { ...params, ...extraParams };
+      const baseSlotParams = examPeriodId ? {} : computeSlotParams(manualStart, manualEnd, manualSlotDuration);
+      const { name, ...rest } = { ...params, ...baseSlotParams, ...extraParams };
       const payload: Record<string, unknown> = name ? { ...rest, name } : { ...rest };
       // Calendar provides exam_days/slots_per_day/start_hour — sending them would
       // re-validate form values that the backend will ignore anyway.
