@@ -1,26 +1,38 @@
 "use client";
 import React from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Sun, Moon } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 
 const NAV_FLAT = [
-  { id: "/",          label: "Genel Bakış" },
-  { id: "/terms",     label: "Dönem Yönetimi" },
-  { id: "/courses",   label: "Ders Bölümleri" },
-  { id: "/rooms",     label: "Sınav Odaları" },
-  { id: "/students",  label: "Öğrenci & Kayıt" },
-  { id: "/optimizer", label: "Çalıştır" },
-  { id: "/solutions", label: "Çözümler" },
-  { id: "/schedule",  label: "Takvim Görünümü" },
+  { id: "/",              label: "Genel Bakış" },
+  { id: "/terms",         label: "Dönem Yönetimi" },
+  { id: "/courses",       label: "Ders Bölümleri" },
+  { id: "/rooms",         label: "Sınav Odaları" },
+  { id: "/students",      label: "Öğrenci & Kayıt" },
+  { id: "/exam-calendar", label: "Sınav Takvimi" },
+  { id: "/optimizer",     label: "Çalıştır" },
+  { id: "/solutions",     label: "Çözümler" },
+  { id: "/schedule",      label: "Takvim Görünümü" },
 ];
+
+const SUB_TABS: Record<string, Record<string, string>> = {
+  "/exam-calendar": {
+    optimization: "Ders Seçimi",
+    simultaneous: "Eş Zamanlı Sınavlar",
+  },
+};
 
 export default function Topbar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { username, logout } = useAuth();
   const { resolvedTheme, setTheme } = useTheme();
+
   const currentLabel = NAV_FLAT.find(n => n.id === pathname)?.label ?? "Bilinmeyen Sayfa";
+  const tab = searchParams.get("tab") ?? "";
+  const subLabel = SUB_TABS[pathname]?.[tab] ?? null;
 
   return (
     <div style={{
@@ -35,7 +47,16 @@ export default function Topbar() {
       <div style={{ fontSize: "0.75rem", color: "var(--on-surface-variant)" }}>
         Dashboard{" "}
         <span style={{ opacity: 0.5 }}>›</span>{" "}
-        <span style={{ color: "var(--on-surface)" }}>{currentLabel}</span>
+        {subLabel ? (
+          <>
+            <span style={{ color: "var(--on-surface-variant)" }}>{currentLabel}</span>
+            {" "}
+            <span style={{ opacity: 0.5 }}>›</span>{" "}
+            <span style={{ color: "var(--on-surface)" }}>{subLabel}</span>
+          </>
+        ) : (
+          <span style={{ color: "var(--on-surface)" }}>{currentLabel}</span>
+        )}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>

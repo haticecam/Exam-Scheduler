@@ -112,15 +112,20 @@ function SolutionDetail({ s }: { s: Solution }) {
                 source={llmCodes.has("PARAM_EXAM_DAYS") ? "llm" : null}
               />
               <ParamRow
-                label="Slot/Gün (30dk)"
-                value={p.slots_per_day ?? "—"}
-                source={llmCodes.has("PARAM_SLOTS_PER_DAY") ? "llm" : null}
-              />
-              <ParamRow
-                label="Başlangıç Saati"
-                value={p.start_hour != null ? `${p.start_hour}:00` : "—"}
+                label="Başlangıç Zamanı"
+                value={p.start_hour != null ? `${String(p.start_hour).padStart(2, "0")}:30` : "—"}
                 source={llmCodes.has("PARAM_START_HOUR") ? "llm" : null}
               />
+              <ParamRow
+                label="Bitiş Zamanı"
+                value={(() => {
+                  if (p.start_hour == null || p.slots_per_day == null) return "—";
+                  const endMin = p.start_hour * 60 + 30 + p.slots_per_day * 30;
+                  return `${String(Math.floor(endMin / 60)).padStart(2, "0")}:${String(endMin % 60).padStart(2, "0")}`;
+                })()}
+                source={llmCodes.has("PARAM_SLOTS_PER_DAY") ? "llm" : null}
+              />
+              <ParamRow label="Slot Süresi" value="30 dk" />
             </>
           )}
           <ParamRow
