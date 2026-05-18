@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
 import { Card, SL, Spinner, Badge, ErrorBox } from "@/components/ui";
+import { useTermVersion } from "@/lib/term-context";
 
 const IIS_LABELS: Record<string, string> = {
   no_feasible_slot: "Hiçbir sınav için uygun zaman dilimi bulunamadı.",
@@ -128,8 +129,10 @@ function NumberInput({
 
 export default function OptimizerPage() {
   const router = useRouter();
-  const { data: termsData } = useFetch("/terms/");
+  const { termVersion } = useTermVersion();
+  const { data: termsData } = useFetch("/terms/", [termVersion]);
   const terms = termsData?.results || termsData || [];
+  const activeTerm = terms.find((t: any) => t.status === "Active") ?? null;
 
   const [params, setParams] = useState({
     term_id: "", name: "", hard_threshold: 5, time_limit: 300,
@@ -139,6 +142,13 @@ export default function OptimizerPage() {
   });
 
   const [examPeriodId, setExamPeriodId] = useState<string>("");
+
+  useEffect(() => {
+    if (!activeTerm) return;
+    const id = String(activeTerm.id);
+    setParams(prev => (prev.term_id === id ? prev : { ...prev, term_id: id }));
+    setExamPeriodId("");
+  }, [activeTerm?.id]);
   const { data: periodsData } = useFetch(
     params.term_id ? `/exam-periods/?term_id=${params.term_id}` : "",
     [params.term_id]
@@ -642,10 +652,11 @@ export default function OptimizerPage() {
           <SL>TEMEL PARAMETRELER</SL>
           <div style={{ marginBottom: 16 }}>
             <label style={lStyle}>AKTİF DÖNEM</label>
-            <select style={{ ...iStyle, cursor: "pointer" }} value={params.term_id} onChange={e => { setParams({ ...params, term_id: e.target.value }); setExamPeriodId(""); }}>
-              <option value="">— Dönem seçin —</option>
-              {terms.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
+            <div style={{ ...iStyle, cursor: "default", display: "flex", alignItems: "center", minHeight: 38 }}>
+              {activeTerm
+                ? activeTerm.name
+                : <span style={{ color: C.textMuted }}>Aktif dönem bulunamadı — Dönem Yönetimi&apos;nden bir dönem aktifleştirin.</span>}
+            </div>
           </div>
 
           {/* Exam calendar selector — shown whenever a term is selected */}
