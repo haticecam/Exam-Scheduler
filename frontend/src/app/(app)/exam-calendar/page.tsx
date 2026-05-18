@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
 import { Card, SL, Spinner, ErrorBox, DataTable, DataRow, DataCell, ActionButton, InfoBox } from "@/components/ui";
@@ -65,7 +66,15 @@ const lStyle: React.CSSProperties = {
 };
 
 export default function ExamCalendarPage() {
-  const [activeTab, setActiveTab] = useState<"calendar" | "optimization" | "simultaneous">("calendar");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawTab = searchParams.get("tab");
+  const activeTab: "calendar" | "optimization" | "simultaneous" =
+    rawTab === "optimization" || rawTab === "simultaneous" ? rawTab : "calendar";
+
+  const setActiveTab = (tab: "calendar" | "optimization" | "simultaneous") => {
+    router.replace(`/exam-calendar${tab !== "calendar" ? `?tab=${tab}` : ""}`);
+  };
 
   /* ── Shared: terms list ─────────────────────────────────────────────────── */
   const { termVersion } = useTermVersion();
