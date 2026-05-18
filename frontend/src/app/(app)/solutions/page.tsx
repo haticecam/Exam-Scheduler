@@ -79,21 +79,18 @@ function SolutionDetail({ s }: { s: Solution }) {
 
       {/* ── Stat pills ─────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 20 }}>
-        <StatPill label="Toplam Süre" value={formatRuntime(totalRuntime || stats.runtime_s)} color={C.accent} />
-        <StatPill label="Solver Süresi" value={formatRuntime(stats.runtime_s)} color={C.accent} />
+        <StatPill label="Oluşturulma" value={s.created_at ? new Date(s.created_at).toLocaleString("tr-TR") : "—"} color={C.textMuted} />
         <StatPill label="Model Kurma" value={formatRuntime(stats.build_time_s)} color={C.textMuted} />
-        <StatPill label="Penaltı Skoru" value={s.score != null ? s.score.toLocaleString("tr-TR") : "—"} color={C.amber} />
+        <StatPill label="Solver Süresi" value={formatRuntime(stats.runtime_s)} color={C.accent} />
+        <StatPill label="Toplam Süre" value={formatRuntime(totalRuntime || stats.runtime_s)} color={C.accent} />
         <StatPill label="Çizelgelenen Ders" value={stats.scheduling_units ?? "—"} color={C.green} />
-        <StatPill label="Hard Çakışma" value={stats.hard_conflict_pairs ?? "—"} color={C.red} />
         {stats.mip_gap != null && (
           <StatPill label="MIP Gap" value={`%${stats.mip_gap}`} color={C.cyan} />
         )}
       </div>
 
-      {/* ── Two-column detail ──────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-
-        {/* Left: Configuration */}
+      {/* ── Configuration detail ──────────────────────────────── */}
+      <div>
         <div>
           <div style={{ fontSize: 10, color: C.textMuted, ...mono, letterSpacing: "0.08em", marginBottom: 10 }}>YAPILANDIRMA</div>
 
@@ -107,21 +104,25 @@ function SolutionDetail({ s }: { s: Solution }) {
             <ParamRow label="Sınav Takvimi" value="Manuel parametreler" />
           )}
 
-          <ParamRow
-            label="Sınav Gün Sayısı"
-            value={p.exam_days ?? "—"}
-            source={calendarActive ? "calendar" : llmCodes.has("PARAM_EXAM_DAYS") ? "llm" : null}
-          />
-          <ParamRow
-            label="Slot/Gün (30dk)"
-            value={p.slots_per_day ?? "—"}
-            source={calendarActive ? "calendar" : llmCodes.has("PARAM_SLOTS_PER_DAY") ? "llm" : null}
-          />
-          <ParamRow
-            label="Başlangıç Saati"
-            value={p.start_hour != null ? `${p.start_hour}:00` : "—"}
-            source={calendarActive ? "calendar" : llmCodes.has("PARAM_START_HOUR") ? "llm" : null}
-          />
+          {!calendarActive && (
+            <>
+              <ParamRow
+                label="Sınav Gün Sayısı"
+                value={p.exam_days ?? "—"}
+                source={llmCodes.has("PARAM_EXAM_DAYS") ? "llm" : null}
+              />
+              <ParamRow
+                label="Slot/Gün (30dk)"
+                value={p.slots_per_day ?? "—"}
+                source={llmCodes.has("PARAM_SLOTS_PER_DAY") ? "llm" : null}
+              />
+              <ParamRow
+                label="Başlangıç Saati"
+                value={p.start_hour != null ? `${p.start_hour}:00` : "—"}
+                source={llmCodes.has("PARAM_START_HOUR") ? "llm" : null}
+              />
+            </>
+          )}
           <ParamRow
             label="Hard Threshold"
             value={p.hard_threshold ?? "—"}
@@ -156,19 +157,6 @@ function SolutionDetail({ s }: { s: Solution }) {
               source={llmCodes.has("PARAM_YEAR_ORDER_SEQUENCE") ? "llm" : null}
             />
           )}
-        </div>
-
-        {/* Right: Solver stats */}
-        <div>
-          <div style={{ fontSize: 10, color: C.textMuted, ...mono, letterSpacing: "0.08em", marginBottom: 10 }}>SOLVER DETAYLARI</div>
-          <ParamRow label="Değişken Sayısı" value={stats.num_vars?.toLocaleString("tr-TR") ?? "—"} />
-          <ParamRow label="Kısıt Sayısı" value={stats.num_constraints?.toLocaleString("tr-TR") ?? "—"} />
-          <ParamRow label="Toplam Çakışma" value={stats.conflicts_total ?? "—"} />
-          <ParamRow label="Hedef Değer" value={stats.obj_value != null ? stats.obj_value.toLocaleString("tr-TR") : "—"} />
-          <ParamRow label="Oluşturma Süresi" value={formatRuntime(stats.build_time_s)} />
-          <ParamRow label="Çözüm Süresi" value={formatRuntime(stats.solve_time_s ?? stats.runtime_s)} />
-          <ParamRow label="Gurobi Runtime" value={formatRuntime(stats.runtime_s)} />
-          <ParamRow label="Oluşturulma" value={s.created_at ? new Date(s.created_at).toLocaleString("tr-TR") : "—"} />
         </div>
       </div>
 
