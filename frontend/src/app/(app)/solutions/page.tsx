@@ -5,6 +5,7 @@ import { C, mono } from "@/lib/colors";
 import { useFetch, api } from "@/lib/api";
 import { Card, Spinner, ErrorBox, Badge, PageHeader, DataTable, DataRow, DataCell, ActionButton } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useTermVersion } from "@/lib/term-context";
 
 type DiagnoseResult = {
   success: boolean;
@@ -190,7 +191,8 @@ function SolutionDetail({ s }: { s: Solution }) {
 
 export default function SolutionsPage() {
   const router = useRouter();
-  const { data, loading, error, refetch } = useFetch("/optimize/history/");
+  const { termVersion } = useTermVersion();
+  const { data, loading, error, refetch } = useFetch("/optimize/history/", [termVersion]);
   const solutions: Solution[] = data?.results || data || [];
 
   const [deleteTarget, setDeleteTarget] = useState<Solution | null>(null);

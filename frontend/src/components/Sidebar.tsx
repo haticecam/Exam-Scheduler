@@ -7,6 +7,7 @@ import { ChevronDown, Check } from "lucide-react";
 import { useFetch, api } from "@/lib/api";
 import { Badge, Spinner } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { useTermVersion } from "@/lib/term-context";
 
 const NAV = [
   {
@@ -79,6 +80,7 @@ function TermSwitcher() {
   const { data, refetch } = useFetch("/terms/");
   const terms: any[] = data?.results ?? data ?? [];
   const activeTerm = terms.find((t: any) => t.status === "Active") ?? terms[0];
+  const { bumpTermVersion } = useTermVersion();
 
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
@@ -99,6 +101,7 @@ function TermSwitcher() {
     try {
       await api.patch(`/terms/${term.id}/`, { status: "Active" });
       refetch();
+      bumpTermVersion();
     } finally {
       setSwitching(null);
     }
