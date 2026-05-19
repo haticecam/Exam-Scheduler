@@ -22,8 +22,8 @@ In `/exam-calendar?tab=simultaneous`, existing simultaneous exam groups can only
 - For course updates: delete existing `SimultaneousExamGroupCourse` rows for the group, then bulk-create new ones from `course_ids`
 - Reuse existing validation from the serializer's `create()` — same exam period constraint, no course duplicated across groups (excluding the group being edited from the duplicate check)
 
-**File:** `core/serializers.py` (if needed)  
-- If validation logic is tightly coupled to `create()`, extract it into a shared helper or move it to the view's `partial_update()`.
+**File:** `core/serializers.py` — no changes needed  
+- The serializer's `validate()` already does `exclude(pk=self.instance.pk if self.instance else None)` in the sibling overlap check. Passing the instance via `serializer = Serializer(instance, data=..., partial=True)` will automatically exclude the group being edited from conflict detection.
 
 ### Frontend
 
@@ -81,7 +81,7 @@ User clicks Kaydet
 - The existing DELETE flow is unchanged
 - At least 2 courses must be selected to save
 - A group must remain within the same exam period (slot picker is already filtered to the correct period's slots)
-- Course duplicate-across-groups validation on the backend must exclude the group being edited from the check
+- The serializer's sibling overlap check already excludes the group being edited via `self.instance.pk` — no extra logic needed
 
 ## Files changed
 
