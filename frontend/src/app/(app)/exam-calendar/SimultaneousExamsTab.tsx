@@ -178,12 +178,131 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     [newGroupCourses, slotDurationMinutes, sessionMode],
   );
 
+  // Courses to show in the edit modal: current group's courses + ungrouped candidates.
+  // We exclude the editing group's courses from the "already grouped" filter so they appear.
+  const editCandidates = React.useMemo(() => {
+    if (!editingGroup) return [];
+    const editingGroupCourseIds = new Set(editingGroup.courses.map(c => String(c.course_id)));
+    return sections
+      .filter((s: any) => {
+        if (s.excluded_from_optimization) return false;
+        if (!duplicateCodes.has(s.course_code)) return false;
+        const courseId = String(s.course_id ?? s.id);
+        if (editingGroupCourseIds.has(courseId)) return true;
+        if (groupedCourseIds.has(courseId)) return false;
+        return true;
+      })
+      .sort((a: any, b: any) =>
+        String(a.course_code ?? "").localeCompare(String(b.course_code ?? ""))
+      );
+  }, [sections, editingGroup, duplicateCodes, groupedCourseIds]);
+
   type PinnedWindow = {
     groupLabel: string;
     startMin: number;
     endMin: number;
     codes: string[];
   };
+
+  // Pinned windows excluding the group being edited (so its own slot shows as available).
+  const editPinnedWindowsByDate: Record<string, PinnedWindow[]> = React.useMemo(() => {
+    if (!editingGroup) return {};
+    const out: Record<string, PinnedWindow[]> = {};
+    for (const g of groups) {
+      if (g.id === editingGroup.id) continue;
+      if (!g.slot_date || !g.slot_start_time) continue;
+      const courses: DurationInputs[] = g.courses.map(c => ({
+        weekly_hours_lecture: c.weekly_hours_lecture,
+        exam_duration_minutes: c.exam_duration_minutes,
+      }));
+      const dur = groupExamDurationMinutes(courses, slotDurationMinutes, sessionMode);
+      if (dur <= 0) continue;
+      const start = timeStringToMinutes(g.slot_start_time);
+      (out[g.slot_date] ||= []).push({
+        groupLabel: g.label,
+        startMin: start,
+        endMin: start + dur,
+        codes: Array.from(new Set(g.courses.map(c => c.code))),
+      });
+    }
+    return out;
+  }, [groups, editingGroup, slotDurationMinutes, sessionMode]);
+
+  // Duration of the group being edited based on currently checked courses.
+  const editGroupCourses: DurationInputs[] = React.useMemo(() => {
+    if (!editingGroup) return [];
+    return sections
+      .filter((s: any) => editChecked.has(String(s.course_id ?? s.id)))
+      .map((s: any) => ({
+        weekly_hours_lecture: s.weekly_hours_lecture ?? null,
+        exam_duration_minutes: s.exam_duration_minutes ?? null,
+      }));
+  }, [sections, editChecked, editingGroup]);
+
+  const editGroupDurationMinutes = React.useMemo(
+    () => groupExamDurationMinutes(editGroupCourses, slotDurationMinutes, sessionMode),
+    [editGroupCourses, slotDurationMinutes, sessionMode],
+  );
+
+  // Conflict cells for the edit modal slot grid.
+  const editConflictCells: Map<string, ConflictCellInfo> = React.useMemo(() => {
+    const result = new Map<string, ConflictCellInfo>();
+    if (!editingGroup || editGroupDurationMinutes <= 0) return result;
+
+    for (const date of dates) {
+      const windows = editPinnedWindowsByDate[date] || [];
+      let runStartKey: string | null = null;
+      let runLength = 0;
+      let runLabel: string | null = null;
+
+      const closeRun = () => {
+        if (runStartKey) {
+          const startInfo = result.get(runStartKey);
+          if (startInfo) startInfo.rowSpan = runLength;
+        }
+        runStartKey = null;
+        runLength = 0;
+        runLabel = null;
+      };
+
+      for (const time of times) {
+        const slot = slotMap[`${date}|${time}`];
+        const key = `${date}|${time}`;
+        let conflict: PinnedWindow | null = null;
+        let conflictType: 'window' | 'buffer' = 'window';
+        if (slot && !slot.is_blocked) {
+          const sStart = timeStringToMinutes(slot.start_time);
+          const sEnd = sStart + editGroupDurationMinutes;
+          for (const w of windows) {
+            if (intervalsOverlap(sStart, sEnd, w.startMin, w.endMin)) {
+              conflict = w;
+              conflictType = sStart >= w.startMin ? 'window' : 'buffer';
+              break;
+            }
+          }
+        }
+
+        if (conflict && conflictType === 'window' && conflict.groupLabel === runLabel) {
+          runLength += 1;
+          result.set(key, { conflict, rowSpan: 0, conflictType: 'window' });
+        } else {
+          closeRun();
+          if (conflict) {
+            if (conflictType === 'window') {
+              runStartKey = key;
+              runLength = 1;
+              runLabel = conflict.groupLabel;
+              result.set(key, { conflict, rowSpan: 1, conflictType: 'window' });
+            } else {
+              result.set(key, { conflict, rowSpan: 1, conflictType: 'buffer' });
+            }
+          }
+        }
+      }
+      closeRun();
+    }
+    return result;
+  }, [editingGroup, editGroupDurationMinutes, dates, times, slotMap, editPinnedWindowsByDate]);
 
   const pinnedWindowsByDate: Record<string, PinnedWindow[]> = React.useMemo(() => {
     const out: Record<string, PinnedWindow[]> = {};
@@ -890,6 +1009,262 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                 <Spinner size={16} />
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* 5 — Edit group modal */}
+      {editingGroup && (
+        <div style={{
+          position: "fixed", inset: 0,
+          background: "rgba(0,0,0,0.5)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          zIndex: 100,
+        }}>
+          <div style={{
+            background: "var(--surface)",
+            borderRadius: 12,
+            padding: 24,
+            maxWidth: "92vw",
+            maxHeight: "88vh",
+            overflow: "auto",
+            minWidth: 480,
+            display: "flex",
+            flexDirection: "column",
+            gap: 20,
+          }}>
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, ...mono, color: C.text }}>
+                {editingGroup.label} — Düzenle
+              </h3>
+              <button
+                onClick={() => setEditingGroup(null)}
+                style={{ background: "transparent", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 20, lineHeight: 1 }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {editErr && <ErrorBox msg={editErr} />}
+
+            {/* Section 1: Course selection */}
+            <div>
+              <div style={{ fontSize: 10, color: C.textMuted, ...mono, marginBottom: 10, letterSpacing: "0.06em" }}>
+                DERS SEÇİMİ — en az 2 ders seçili olmalı
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 200, overflowY: "auto" }}>
+                {editCandidates.map((s: any) => {
+                  const courseId = String(s.course_id ?? s.id);
+                  const isInGroup = editingGroup.courses.some(c => String(c.course_id) === courseId);
+                  const isChecked = editChecked.has(courseId);
+                  return (
+                    <label
+                      key={s.id}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+                        padding: "6px 10px", borderRadius: 6,
+                        background: isChecked
+                          ? `color-mix(in srgb, ${C.cyan} 10%, transparent)`
+                          : "transparent",
+                        border: `1px solid ${isChecked ? C.cyan : "transparent"}`,
+                        transition: "all 120ms ease-out",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() =>
+                          setEditChecked(prev => {
+                            const next = new Set(prev);
+                            next.has(courseId) ? next.delete(courseId) : next.add(courseId);
+                            return next;
+                          })
+                        }
+                      />
+                      <span style={{ ...mono, fontSize: 12, color: C.cyan, fontWeight: 600, minWidth: 90 }}>
+                        {s.course_code}
+                      </span>
+                      <span style={{ fontSize: 12, color: C.text }}>{s.course_name}</span>
+                      {isInGroup && (
+                        <span style={{ fontSize: 10, color: C.textMuted, marginLeft: "auto" }}>mevcut</span>
+                      )}
+                    </label>
+                  );
+                })}
+                {editCandidates.length === 0 && (
+                  <p style={{ fontSize: 12, color: C.textMuted, margin: 0 }}>Uygun ders bulunamadı.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Section 2: Slot calendar */}
+            {slots.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, color: C.textMuted, ...mono, marginBottom: 10, letterSpacing: "0.06em" }}>
+                  ZAMAN SEÇİMİ — mevcut slot mavi, çakışanlar kırmızı/turuncu
+                </div>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ borderCollapse: "collapse", minWidth: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th style={{
+                          position: "sticky", left: 0, background: "var(--surface)", zIndex: 2,
+                          padding: "8px 14px", borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+                          ...mono, fontSize: 10, color: C.textMuted, textAlign: "left", fontWeight: 600,
+                        }}>
+                          SAAT
+                        </th>
+                        {dates.map(date => (
+                          <th key={date} style={{
+                            padding: "8px 10px",
+                            borderBottom: `1px solid ${C.border}`,
+                            borderRight: `1px solid ${C.border}`,
+                            minWidth: 90, textAlign: "center",
+                            background: "var(--surface)",
+                          }}>
+                            <div style={{ ...mono, fontSize: 11, color: C.text, fontWeight: 700 }}>{weekdayLabel(date)}</div>
+                            <div style={{ ...mono, fontSize: 10, color: C.textMuted }}>{formatDdMm(date)}</div>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {times.map((time, rowIdx) => (
+                        <tr key={time} style={{ background: rowIdx % 2 === 0 ? "transparent" : "color-mix(in srgb, var(--surface) 50%, transparent)" }}>
+                          <td style={{
+                            position: "sticky", left: 0, background: "var(--surface)", zIndex: 1,
+                            padding: "6px 14px", borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`,
+                            ...mono, fontSize: 11, color: C.textMuted, whiteSpace: "nowrap",
+                          }}>
+                            {time}
+                          </td>
+                          {dates.map(date => {
+                            const slot = slotMap[`${date}|${time}`];
+                            if (!slot) return (
+                              <td key={date} style={{ borderBottom: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}` }} />
+                            );
+                            const blocked = slot.is_blocked;
+                            const cellInfo = editConflictCells.get(`${date}|${time}`);
+                            if (cellInfo && cellInfo.rowSpan === 0) return null;
+
+                            const conflict = cellInfo?.conflict ?? null;
+                            const conflictType = cellInfo?.conflictType ?? null;
+                            const rowSpan = cellInfo?.rowSpan ?? 1;
+                            const isSelected = slot.id === editSlotId;
+                            const isLocked = blocked || !!conflict;
+
+                            const bg = blocked
+                              ? `color-mix(in srgb, ${C.red} 16%, transparent)`
+                              : isSelected
+                                ? `color-mix(in srgb, #3b82f6 18%, transparent)`
+                                : conflictType === 'buffer'
+                                  ? `color-mix(in srgb, ${C.amber} 14%, transparent)`
+                                  : conflict
+                                    ? `color-mix(in srgb, ${C.red} 12%, transparent)`
+                                    : `color-mix(in srgb, ${C.green} 12%, transparent)`;
+
+                            const border = isSelected
+                              ? `2px solid #3b82f6`
+                              : `1px solid ${C.border}`;
+
+                            const tooltip = blocked
+                              ? "Engellenmiş — seçilemez"
+                              : isSelected
+                                ? "Mevcut seçim — tıkla kaldır"
+                                : conflictType === 'buffer'
+                                  ? `${conflict!.groupLabel} bu saatte başlar — çakışır`
+                                  : conflict
+                                    ? `${conflict!.groupLabel} — ${minutesToTimeStr(conflict!.startMin)}–${minutesToTimeStr(conflict!.endMin)}`
+                                    : "Tıkla: bu saate ata";
+
+                            return (
+                              <td
+                                key={date}
+                                rowSpan={rowSpan}
+                                onClick={() => {
+                                  if (isLocked && !isSelected) return;
+                                  setEditSlotId(isSelected ? null : slot.id);
+                                }}
+                                title={tooltip}
+                                style={{
+                                  borderBottom: border,
+                                  borderRight: border,
+                                  background: bg,
+                                  cursor: (isLocked && !isSelected) ? "not-allowed" : "pointer",
+                                  padding: conflict ? "4px 6px" : "8px 10px",
+                                  textAlign: "center",
+                                  verticalAlign: "middle",
+                                  transition: "background 120ms ease-out",
+                                  userSelect: "none",
+                                  minWidth: 90,
+                                }}
+                              >
+                                {blocked ? (
+                                  <span style={{ fontSize: 14 }}>✕</span>
+                                ) : isSelected ? (
+                                  <span style={{ fontSize: 14, color: "#3b82f6" }}>✓</span>
+                                ) : conflictType === 'buffer' ? (
+                                  <div style={{ ...mono, fontSize: 9, color: C.amber, fontWeight: 600 }}>
+                                    →{minutesToTimeStr(conflict!.startMin)}
+                                  </div>
+                                ) : conflict ? (
+                                  <div style={{ ...mono, fontSize: 10, lineHeight: 1.25, color: C.red, fontWeight: 600 }}>
+                                    <div style={{ fontSize: 9, opacity: 0.8, marginBottom: 2 }}>
+                                      {minutesToTimeStr(conflict.startMin)}–{minutesToTimeStr(conflict.endMin)}
+                                    </div>
+                                    {conflict.codes.slice(0, 3).map(code => (
+                                      <div key={code} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                        {code}
+                                      </div>
+                                    ))}
+                                    {conflict.codes.length > 3 && (
+                                      <div style={{ opacity: 0.7 }}>+{conflict.codes.length - 3}</div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: 14 }}>✓</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 4 }}>
+              <button
+                onClick={() => setEditingGroup(null)}
+                disabled={editSaving}
+                style={{
+                  background: "transparent", border: `1px solid ${C.border}`,
+                  borderRadius: 8, padding: "10px 20px",
+                  cursor: editSaving ? "not-allowed" : "pointer",
+                  color: C.textMuted, fontSize: 13, ...mono,
+                }}
+              >
+                İptal
+              </button>
+              <button
+                onClick={saveEdit}
+                disabled={editSaving || editChecked.size < 2}
+                style={{
+                  background: editChecked.size >= 2 ? C.accent : C.border,
+                  color: editChecked.size >= 2 ? "#fff" : C.textMuted,
+                  border: "none", borderRadius: 8, padding: "10px 20px",
+                  cursor: (editSaving || editChecked.size < 2) ? "not-allowed" : "pointer",
+                  fontSize: 13, fontWeight: 700, ...mono,
+                  transition: "background 140ms ease-out",
+                  display: "flex", alignItems: "center", gap: 8,
+                }}
+              >
+                {editSaving ? <><Spinner size={13} /> Kaydediliyor…</> : "Kaydet"}
+              </button>
+            </div>
           </div>
         </div>
       )}
