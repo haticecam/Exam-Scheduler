@@ -95,15 +95,30 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const [filterType, setFilterType] = useState("Tümü");
   const [search, setSearch] = useState("");
 
-  // A course code is a candidate for a simultaneous-exam group whenever it has
-  // 2+ section rows — either across departments (e.g. MATH101 in ELEKTRIK + MET-MALZ)
-  // or as multiple Şube within a single department (e.g. ENGR265 Şube 1/2/3).
-  // Exclusions don't count.
+  // Section count per course_id (excluded sections don't count). Multi-section
+  // courses are already scheduled at one slot by the optimizer, so they're not
+  // candidates for manual simultaneous grouping.
+  const sectionsPerCourse = React.useMemo(() => {
+    const m = new Map<string, number>();
+    for (const s of sections as any[]) {
+      if (s.excluded_from_optimization) continue;
+      const cid = String(s.course_id ?? s.id);
+      m.set(cid, (m.get(cid) ?? 0) + 1);
+    }
+    return m;
+  }, [sections]);
+
+  // A course code is a candidate for a simultaneous-exam group when 2+ rows
+  // share that code AND each contributing course_id has only one section.
+  // Multi-section courses are excluded — the optimizer already pins their
+  // sections to the same slot.
   const duplicateCodes = React.useMemo(() => {
     const countByCode = new Map<string, number>();
     for (const s of sections as any[]) {
       if (s.excluded_from_optimization) continue;
       if (!s.course_code) continue;
+      const cid = String(s.course_id ?? s.id);
+      if ((sectionsPerCourse.get(cid) ?? 0) > 1) continue;
       countByCode.set(s.course_code, (countByCode.get(s.course_code) ?? 0) + 1);
     }
     const out = new Set<string>();
@@ -111,7 +126,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
       if (n >= 2) out.add(code);
     }
     return out;
-  }, [sections]);
+  }, [sections, sectionsPerCourse]);
 
   // Courses already in any simultaneous group are hidden from the candidate
   // list so they cannot be re-grouped. Deleting the group restores them.
@@ -124,6 +139,8 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const filtered = sections
     .filter((s: any) => {
       if (s.excluded_from_optimization) return false;
+      const courseId = String(s.course_id ?? s.id);
+      if ((sectionsPerCourse.get(courseId) ?? 0) > 1) return false;
       if (!duplicateCodes.has(s.course_code)) return false;
       if (groupedCourseIds.has(String(s.course_id))) return false;
       if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
@@ -186,16 +203,19 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     return sections
       .filter((s: any) => {
         if (s.excluded_from_optimization) return false;
-        if (!duplicateCodes.has(s.course_code)) return false;
         const courseId = String(s.course_id ?? s.id);
+        // Always show courses already in the editing group, even if they're
+        // multi-section (legacy groups created before the multi-section filter).
         if (editingGroupCourseIds.has(courseId)) return true;
+        if ((sectionsPerCourse.get(courseId) ?? 0) > 1) return false;
+        if (!duplicateCodes.has(s.course_code)) return false;
         if (groupedCourseIds.has(courseId)) return false;
         return true;
       })
       .sort((a: any, b: any) =>
         String(a.course_code ?? "").localeCompare(String(b.course_code ?? ""))
       );
-  }, [sections, editingGroup, duplicateCodes, groupedCourseIds]);
+  }, [sections, editingGroup, duplicateCodes, groupedCourseIds, sectionsPerCourse]);
 
   type PinnedWindow = {
     groupLabel: string;
@@ -804,7 +824,7 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
               )}
               {!sectionsLoading && filtered.length === 0 && (
                 <DataRow>
-                  <DataCell colSpan={7}><InfoBox msg="Aynı koda sahip birden fazla şube bulunamadı." /></DataCell>
+                  <DataCell colSpan={7}><InfoBox msg="Eş zamanlı yapılabilecek aday ders bulunamadı." /></DataCell>
                 </DataRow>
               )}
               {filtered.map((sec: any) => {
