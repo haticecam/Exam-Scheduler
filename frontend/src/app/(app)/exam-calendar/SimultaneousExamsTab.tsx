@@ -153,6 +153,12 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
   const [saveErr, setSaveErr] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  const [editingGroup, setEditingGroup] = useState<SimGroup | null>(null);
+  const [editChecked, setEditChecked] = useState<Set<string>>(new Set());
+  const [editSlotId, setEditSlotId] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editErr, setEditErr] = useState("");
+
   const dates = Array.from(new Set(slots.map(s => s.date))).sort();
   const times = Array.from(new Set(slots.map(s => s.start_time))).sort();
   const slotMap: Record<string, ExamDateSlot> = {};
@@ -371,6 +377,39 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
     }
   };
 
+  const openEdit = useCallback((group: SimGroup) => {
+    setEditingGroup(group);
+    setEditChecked(new Set(group.courses.map(c => String(c.course_id))));
+    setEditSlotId(group.slot ?? null);
+    setEditErr("");
+  }, []);
+
+  const saveEdit = useCallback(async () => {
+    if (!editingGroup) return;
+    setEditSaving(true);
+    setEditErr("");
+    try {
+      await api.patch(`/simultaneous-groups/${editingGroup.id}/`, {
+        slot: editSlotId,
+        course_ids: Array.from(editChecked),
+      });
+      setEditingGroup(null);
+      refetchGroups();
+    } catch (e: any) {
+      const msg =
+        e?.data?.slot
+          ? (Array.isArray(e.data.slot) ? e.data.slot.join(" ") : String(e.data.slot))
+          : e?.data?.course_ids
+            ? (Array.isArray(e.data.course_ids) ? e.data.course_ids.join(" ") : String(e.data.course_ids))
+            : e?.data?.detail
+              ? String(e.data.detail)
+              : e?.message || "Kayıt başarısız.";
+      setEditErr(msg);
+    } finally {
+      setEditSaving(false);
+    }
+  }, [editingGroup, editSlotId, editChecked, refetchGroups]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
@@ -421,23 +460,40 @@ export default function SimultaneousExamsTab({ termId, periodId }: { termId: str
                           </span>
                         )}
                       </span>
-                      <button
-                        onClick={() => deleteGroup(g.id)}
-                        disabled={deletingId === g.id}
-                        style={{
-                          background: "transparent",
-                          border: `1px solid ${C.red}`,
-                          borderRadius: 6,
-                          padding: "4px 12px",
-                          cursor: deletingId === g.id ? "not-allowed" : "pointer",
-                          color: C.red,
-                          fontSize: 12,
-                          ...mono,
-                          opacity: deletingId === g.id ? 0.5 : 1,
-                        }}
-                      >
-                        {deletingId === g.id ? "Siliniyor…" : "Sil"}
-                      </button>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => openEdit(g)}
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${C.border}`,
+                            borderRadius: 6,
+                            padding: "4px 12px",
+                            cursor: "pointer",
+                            color: C.text,
+                            fontSize: 12,
+                            ...mono,
+                          }}
+                        >
+                          Düzenle
+                        </button>
+                        <button
+                          onClick={() => deleteGroup(g.id)}
+                          disabled={deletingId === g.id}
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${C.red}`,
+                            borderRadius: 6,
+                            padding: "4px 12px",
+                            cursor: deletingId === g.id ? "not-allowed" : "pointer",
+                            color: C.red,
+                            fontSize: 12,
+                            ...mono,
+                            opacity: deletingId === g.id ? 0.5 : 1,
+                          }}
+                        >
+                          {deletingId === g.id ? "Siliniyor…" : "Sil"}
+                        </button>
+                      </div>
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                       {g.courses.map(c => (
