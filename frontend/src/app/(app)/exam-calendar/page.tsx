@@ -899,7 +899,7 @@ export default function ExamCalendarPage() {
                     {sec.year_level ? `${sec.year_level}. Sınıf` : "—"}
                   </DataCell>
                   <DataCell style={{ fontSize: 12, color: C.textSub }}>{sec.academic_unit_name ?? "—"}</DataCell>
-                  <DataCell style={{ ...mono, fontSize: 12, color: C.textSub, textAlign: "right" }}>
+                  <DataCell style={{ ...mono, fontSize: 12, color: C.textSub }}>
                     {sec.enrollment_count ?? 0}
                   </DataCell>
                   <DataCell style={{ fontSize: 12 }}>
