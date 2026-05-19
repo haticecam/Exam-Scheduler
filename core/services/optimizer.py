@@ -76,6 +76,20 @@ def _room_allowed_for_unit(room: dict, student_dept_id: str) -> bool:
     return student_dept_id in allowed
 
 
+def _group_unit_keys_by_course(info: dict) -> dict:
+    """
+    Group scheduling unit_keys by their underlying course_id.
+
+    A single CourseCatalog row enrolled by students from multiple departments
+    produces one unit_key per (course, dept), so groups with len > 1 represent
+    cross-department single-section courses that must be pinned to one slot.
+    """
+    groups = defaultdict(list)
+    for unit_key, row in info.items():
+        groups[row["course_id"]].append(unit_key)
+    return dict(groups)
+
+
 class OptimizerService:
     """
     Scheduling unit: (course × student's department).
@@ -454,6 +468,18 @@ class OptimizerService:
         for c in C:
             m.addConstr(quicksum(y[(c, s)] for s in _vs[c]) == 1,
                         name=f"one_start[{short[c]}]")
+
+        # Same course offered to multiple depts via one section must share a slot.
+        # Each (course, dept) is a separate unit_key, but the physical exam is one event.
+        for course_id, unit_keys in _group_unit_keys_by_course(info).items():
+            if len(unit_keys) < 2:
+                continue
+            primary = unit_keys[0]
+            for other in unit_keys[1:]:
+                for s in _vs[primary]:
+                    if (other, s) in y:
+                        m.addConstr(y[(other, s)] == y[(primary, s)],
+                                    name=f"same_course[{short[primary]},{s}]")
 
         for c in C:
             enrolled = info[c]["enrolled_count"]
