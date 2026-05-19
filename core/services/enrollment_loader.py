@@ -164,7 +164,7 @@ class XlsxEnrollmentLoaderService:
         import openpyxl
 
         canonical_name = self._canonicalize_filename(filename)
-        course_code = canonical_name.rsplit('.', 1)[0]
+        course_code = canonical_name.rsplit('.', 1)[0].rstrip('.')
 
         sections_qs = list(
             CourseSection.objects.select_related('course', 'course__academic_unit')
@@ -177,19 +177,9 @@ class XlsxEnrollmentLoaderService:
                 "error": f"No CourseSection found for course code '{course_code}' in this term."
             }
 
-        # Some courses (e.g. TİT101, TDL) exist as one CourseCatalog per consumer
-        # department, so the same course_code resolves to multiple sections — one
-        # per owning AcademicUnit. We must route each student row to the section
-        # whose owning dept matches the row's `Program` field. When only one
-        # section exists (typical service course like MATH101 owned by one dept),
-        # we route everyone there as before.
         sections_by_unit_id: dict = {}
         for sec in sections_qs:
             sections_by_unit_id.setdefault(sec.course.academic_unit_id, sec)
-        default_section = (
-            next(iter(sections_by_unit_id.values()))
-            if len(sections_by_unit_id) == 1 else None
-        )
 
         unit_map = {
             self._normalize(u.name): u
@@ -219,32 +209,107 @@ class XlsxEnrollmentLoaderService:
         if missing:
             return {"file": filename, "error": f"Missing required column(s): {missing}"}
 
+        data_rows = rows[1:]
+        program_counts, valid_row_count = self._scan_rows(
+            data_rows, idx_student, idx_program, unit_map
+        )
+        file_section = self._pick_file_section(
+            sections_by_unit_id, program_counts, valid_row_count, sections_qs
+        )
+        if file_section is None:
+            return {
+                "file": filename,
+                "course_code": course_code,
+                "students_created": 0,
+                "enrollments_created": 0,
+                "warning": (
+                    f"Could not determine target section for '{course_code}': "
+                    f"no row's Program owns a section, file row count ({valid_row_count}) "
+                    f"doesn't uniquely match any section's max_enrollment, and there are "
+                    f"{len(sections_by_unit_id)} candidate sections."
+                ),
+            }
+
         try:
             with transaction.atomic():
                 return self._load_rows(
-                    rows[1:], idx_student, idx_program, idx_year,
-                    sections_by_unit_id, default_section, course_code,
-                    term, org, unit_map, filename
+                    data_rows, idx_student, idx_program, idx_year,
+                    file_section, course_code, term, org, unit_map, filename
                 )
         except Exception as exc:
             return {"file": filename, "error": f"Load failed and was rolled back: {exc}"}
 
+    def _scan_rows(self, data_rows, idx_student, idx_program, unit_map):
+        """Pre-scan: count rows per known-Program unit and total valid rows.
+        Used to pick the file's target section before the main load pass."""
+        program_counts: dict = defaultdict(int)
+        valid_row_count = 0
+        for row in data_rows:
+            if not row or idx_student >= len(row) or row[idx_student] is None:
+                continue
+            if not str(row[idx_student]).strip():
+                continue
+            valid_row_count += 1
+            program_raw = str(row[idx_program]).strip() if (
+                idx_program < len(row) and row[idx_program] is not None
+            ) else ''
+            unit = unit_map.get(self._normalize(program_raw))
+            if unit is not None:
+                program_counts[unit.id] += 1
+        return program_counts, valid_row_count
+
+    @staticmethod
+    def _pick_file_section(sections_by_unit_id, program_counts, valid_row_count, sections_qs):
+        # Each XLSX represents one CourseSection's roster (the folder it came
+        # from). Filename only carries the course code, so we infer which
+        # section it is using:
+        #   A. Dominant routable Program — among Programs that own a section
+        #      for this course, the one with the most rows wins.
+        #   B. Single section — only one section exists across all depts.
+        #   C. Row-count fallback — file row count uniquely matches one
+        #      section's max_enrollment (populated from catalog 'Kontenjan')
+        #      within a small tolerance.
+        # Returns None if no choice can be made confidently.
+        candidates = [
+            (unit_id, n) for unit_id, n in program_counts.items()
+            if unit_id in sections_by_unit_id
+        ]
+        if candidates:
+            candidates.sort(key=lambda x: -x[1])
+            return sections_by_unit_id[candidates[0][0]]
+
+        if len(sections_by_unit_id) == 1:
+            return next(iter(sections_by_unit_id.values()))
+
+        near = [
+            s for s in sections_qs
+            if s.max_enrollment is not None
+            and abs(s.max_enrollment - valid_row_count) <= 2
+        ]
+        if len(near) == 1:
+            return near[0]
+
+        return None
+
     def _load_rows(self, data_rows, idx_student, idx_program, idx_year,
-                   sections_by_unit_id, default_section, course_code,
+                   file_section, course_code,
                    term, org, unit_map, filename) -> dict:
         unknown_students_by_program: dict[str, set[str]] = defaultdict(set)
-        unrouted_by_program: dict[str, set[str]] = defaultdict(set)
         student_infos: dict[str, dict] = {}
 
         for row in data_rows:
-            if not row or row[idx_student] is None:
+            if not row or idx_student >= len(row) or row[idx_student] is None:
                 continue
-            identifier   = str(row[idx_student]).strip()
-            program_raw  = str(row[idx_program]).strip() if row[idx_program] else ''
+            identifier = str(row[idx_student]).strip()
+            if not identifier:
+                continue
+            program_raw = str(row[idx_program]).strip() if (
+                idx_program < len(row) and row[idx_program] is not None
+            ) else ''
             program_norm = self._normalize(program_raw)
             try:
                 year_level = int(row[idx_year])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, IndexError):
                 year_level = 1
 
             unit = unit_map.get(program_norm)
@@ -252,21 +317,13 @@ class XlsxEnrollmentLoaderService:
                 unknown_students_by_program[program_raw or '<EMPTY>'].add(identifier)
                 continue
 
-            section_for_row = default_section or sections_by_unit_id.get(unit.id)
-            if section_for_row is None:
-                unrouted_by_program[program_raw].add(identifier)
-                continue
-
             student_infos[identifier] = {
                 'unit': unit,
                 'year_level': year_level,
-                'section': section_for_row,
             }
 
         unknown_breakdown = {p: len(ids) for p, ids in unknown_students_by_program.items()}
         unknown_students_total = sum(unknown_breakdown.values())
-        unrouted_breakdown = {p: len(ids) for p, ids in unrouted_by_program.items()}
-        unrouted_students_total = sum(unrouted_breakdown.values())
 
         if not student_infos:
             return {
@@ -276,9 +333,7 @@ class XlsxEnrollmentLoaderService:
                 "enrollments_created": 0,
                 "skipped_unknown_program_students": unknown_students_total,
                 "unknown_programs_breakdown": unknown_breakdown,
-                "skipped_no_section_for_program_students": unrouted_students_total,
-                "no_section_for_program_breakdown": unrouted_breakdown,
-                "warning": "No valid rows could be routed to a course section in this file.",
+                "warning": "No valid rows with a known program were found in this file.",
             }
 
         group_map: dict[tuple, StudentGroup] = {}
@@ -336,24 +391,16 @@ class XlsxEnrollmentLoaderService:
         if groups_to_update:
             StudentGroup.objects.bulk_update(groups_to_update, ['size_estimate'])
 
-        target_section_ids = {info['section'].id for info in student_infos.values()}
-        already_enrolled_by_section: dict = defaultdict(set)
-        for sid, student_id in Enrollment.objects.filter(
-            section_id__in=target_section_ids, term=term
-        ).values_list('section_id', 'student_id'):
-            already_enrolled_by_section[sid].add(student_id)
+        already_enrolled = set(
+            Enrollment.objects.filter(section=file_section, term=term)
+            .values_list('student_id', flat=True)
+        )
 
-        enrollments_to_create = []
-        for identifier, info in student_infos.items():
-            student = student_map.get(identifier)
-            if student is None:
-                continue
-            section = info['section']
-            if student.id in already_enrolled_by_section[section.id]:
-                continue
-            enrollments_to_create.append(
-                Enrollment(student=student, section=section, term=term)
-            )
+        enrollments_to_create = [
+            Enrollment(student=student_map[identifier], section=file_section, term=term)
+            for identifier in student_infos
+            if identifier in student_map and student_map[identifier].id not in already_enrolled
+        ]
         if enrollments_to_create:
             Enrollment.objects.bulk_create(enrollments_to_create, ignore_conflicts=True)
 
@@ -364,6 +411,6 @@ class XlsxEnrollmentLoaderService:
             "enrollments_created": len(enrollments_to_create),
             "skipped_unknown_program_students": unknown_students_total,
             "unknown_programs_breakdown": unknown_breakdown,
-            "skipped_no_section_for_program_students": unrouted_students_total,
-            "no_section_for_program_breakdown": unrouted_breakdown,
+            "target_section_owner": file_section.course.academic_unit.name,
+            "target_section_max_enrollment": file_section.max_enrollment,
         }

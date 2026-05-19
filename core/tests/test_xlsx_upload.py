@@ -176,11 +176,12 @@ def test_service_all_unknown_programs_loads_nothing(base_data):
 
 
 @pytest.mark.django_db
-def test_service_routes_rows_to_per_department_sections(base_data):
-    """When a course code resolves to multiple sections (one per owning
-    AcademicUnit — e.g. TİT101 has a section per consumer dept), each row's
-    Program decides which section the student enrolls into. Without this,
-    every file collapses into `sections[0]` and only one dept gets enrollments."""
+def test_service_routes_file_to_dominant_program_section(base_data):
+    """Each XLSX file represents one CourseSection's roster (the folder it
+    originated from). When a course has sections in multiple depts, the file's
+    target section is the one owned by the dominant Program among its rows.
+    Cross-faculty (minor) students whose Program differs still land in the
+    same section, because the file == the classroom, not the home dept."""
     other_dept = AcademicUnit.objects.create(
         organization=base_data['org'], name="MAKİNE MÜH", type="Department"
     )
@@ -203,6 +204,7 @@ def test_service_routes_rows_to_per_department_sections(base_data):
         HEADER,
         ['STU_C1', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
         ['STU_C2', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
+        ['STU_C3', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
         ['STU_M1', 'MAKİNE MÜH',     1, 'X', 'Zorunlu'],
     ])
     svc = XlsxEnrollmentLoaderService()
@@ -212,15 +214,16 @@ def test_service_routes_rows_to_per_department_sections(base_data):
     )
     file_result = result['results'][0]
     assert 'error' not in file_result, file_result.get('error')
-    assert file_result['enrollments_created'] == 3
-    assert Enrollment.objects.filter(section=section_ceng).count() == 2
-    assert Enrollment.objects.filter(section=section_other).count() == 1
+    assert file_result['enrollments_created'] == 4
+    assert file_result['target_section_owner'] == 'BİLGİSAYAR MÜH'
+    assert Enrollment.objects.filter(section=section_ceng).count() == 4
+    assert Enrollment.objects.filter(section=section_other).count() == 0
 
 
 @pytest.mark.django_db
-def test_service_unrouted_rows_when_no_section_for_program(base_data):
-    """In a multi-section course, rows whose Program has no matching section
-    are reported separately from unknown-program rows so the UI can surface them."""
+def test_service_two_files_route_to_their_respective_dept_sections(base_data):
+    """Two files with the same course code but rows dominated by different
+    Programs should land in different sections."""
     other_dept = AcademicUnit.objects.create(
         organization=base_data['org'], name="MAKİNE MÜH", type="Department"
     )
@@ -228,25 +231,70 @@ def test_service_unrouted_rows_when_no_section_for_program(base_data):
         organization=base_data['org'], academic_unit=other_dept,
         code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
     )
-    CourseSection.objects.create(
+    section_other = CourseSection.objects.create(
         term=base_data['term'], course=course_other, section_code="A", max_enrollment=100
     )
     course_ceng = CourseCatalog.objects.create(
         organization=base_data['org'], academic_unit=base_data['dept'],
         code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
     )
-    CourseSection.objects.create(
+    section_ceng = CourseSection.objects.create(
         term=base_data['term'], course=course_ceng, section_code="A", max_enrollment=100
     )
-    # Register a 3rd dept (no TİT101 section), so its rows are known-program-but-unrouted
+
+    ceng_file = make_xlsx([
+        HEADER,
+        ['STU_C1', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
+        ['STU_C2', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
+    ])
+    makine_file = make_xlsx([
+        HEADER,
+        ['STU_M1', 'MAKİNE MÜH', 1, 'X', 'Zorunlu'],
+        ['STU_M2', 'MAKİNE MÜH', 1, 'X', 'Zorunlu'],
+        ['STU_M3', 'MAKİNE MÜH', 1, 'X', 'Zorunlu'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    svc.process_files(
+        [('TİT101.xlsx', ceng_file), ('TİT101.xlsx', makine_file)],
+        str(base_data['term'].id)
+    )
+    assert Enrollment.objects.filter(section=section_ceng).count() == 2
+    assert Enrollment.objects.filter(section=section_other).count() == 3
+
+
+@pytest.mark.django_db
+def test_service_falls_back_to_rowcount_when_no_dominant_program_has_section(base_data):
+    """When no row's Program owns a section for this course but the file's row
+    count uniquely matches one section's max_enrollment (from catalog
+    'Kontenjan'), use that section as the file's target."""
     AcademicUnit.objects.create(
         organization=base_data['org'], name="MATEMATIK", type="Department"
     )
+    other_dept = AcademicUnit.objects.create(
+        organization=base_data['org'], name="MAKİNE MÜH", type="Department"
+    )
+    course_other = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=other_dept,
+        code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
+    )
+    section_other = CourseSection.objects.create(
+        term=base_data['term'], course=course_other, section_code="A", max_enrollment=100
+    )
+    course_ceng = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=base_data['dept'],
+        code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
+    )
+    section_ceng = CourseSection.objects.create(
+        term=base_data['term'], course=course_ceng, section_code="A", max_enrollment=3
+    )
 
+    # All 3 rows are MATEMATIK (no MATEMATIK section exists), but row count
+    # uniquely matches section_ceng.max_enrollment=3.
     xlsx_bytes = make_xlsx([
         HEADER,
-        ['STU_C1', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
-        ['STU_X1', 'MATEMATIK',      1, 'X', 'Zorunlu'],
+        ['STU_X1', 'MATEMATIK', 1, 'X', 'Zorunlu'],
+        ['STU_X2', 'MATEMATIK', 1, 'X', 'Zorunlu'],
+        ['STU_X3', 'MATEMATIK', 1, 'X', 'Zorunlu'],
     ])
     svc = XlsxEnrollmentLoaderService()
     result = svc.process_files(
@@ -255,9 +303,27 @@ def test_service_unrouted_rows_when_no_section_for_program(base_data):
     )
     fr = result['results'][0]
     assert 'error' not in fr, fr.get('error')
+    assert fr['enrollments_created'] == 3
+    assert Enrollment.objects.filter(section=section_ceng).count() == 3
+
+
+@pytest.mark.django_db
+def test_service_strips_trailing_dots_in_filename(base_data):
+    """Filenames like 'CENG113...xlsx' from inconsistent exports should still
+    derive course code 'CENG113'."""
+    xlsx_bytes = make_xlsx([
+        HEADER,
+        ['STU1', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    result = svc.process_files(
+        [('CENG113...xlsx', xlsx_bytes)],
+        str(base_data['term'].id)
+    )
+    fr = result['results'][0]
+    assert 'error' not in fr, fr.get('error')
+    assert fr['course_code'] == 'CENG113'
     assert fr['enrollments_created'] == 1
-    assert fr['skipped_no_section_for_program_students'] == 1
-    assert fr['no_section_for_program_breakdown'] == {'MATEMATIK': 1}
 
 
 @pytest.mark.django_db
