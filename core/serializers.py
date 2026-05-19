@@ -74,6 +74,7 @@ class CourseSectionSerializer(serializers.ModelSerializer):
         source='course.requirement', read_only=True, allow_null=True
     )
     excluded_from_optimization = serializers.SerializerMethodField()
+    enrollment_count = serializers.IntegerField(read_only=True)
 
     def get_academic_unit_name(self, obj):
         if obj.course.academic_unit:
@@ -90,12 +91,14 @@ class CourseSectionSerializer(serializers.ModelSerializer):
             'year_level', 'academic_unit_name', 'academic_unit_id',
             'requirement', 'exam_duration_minutes',
             'weekly_hours_lecture', 'excluded_from_optimization',
+            'enrollment_count',
         ]
         read_only_fields = [
             'id', 'section_code', 'course_id', 'course_code', 'course_name',
             'year_level', 'academic_unit_name', 'academic_unit_id',
             'requirement', 'exam_duration_minutes',
             'weekly_hours_lecture', 'excluded_from_optimization',
+            'enrollment_count',
         ]
 
 

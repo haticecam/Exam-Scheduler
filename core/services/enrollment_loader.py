@@ -1,5 +1,6 @@
 import csv
 import io
+import unicodedata
 import uuid
 from collections import defaultdict
 
@@ -138,6 +139,21 @@ class XlsxEnrollmentLoaderService:
         return name.strip().rstrip('.,').upper()
 
     @staticmethod
+    def _canonicalize_filename(filename: str) -> str:
+        # Some uploads arrive with names whose UTF-8 bytes (NFD) were re-decoded
+        # as cp437 upstream (`TİT101.xlsx` → `TI╠çT101.xlsx`). Round-tripping
+        # cp437 → utf-8 reverses that; we then NFC-normalize so the recovered
+        # name matches DB course codes stored in NFC.
+        candidate = filename
+        try:
+            recovered = filename.encode('cp437').decode('utf-8')
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            recovered = None
+        if recovered and '�' not in recovered and recovered != filename:
+            candidate = recovered
+        return unicodedata.normalize('NFC', candidate)
+
+    @staticmethod
     def _find_col_idx(header: list[str], prefix: str) -> int | None:
         for i, col in enumerate(header):
             if col == prefix or col.startswith(prefix + '_'):
@@ -147,19 +163,23 @@ class XlsxEnrollmentLoaderService:
     def _process_one_file(self, filename: str, file_bytes: bytes, term, org) -> dict:
         import openpyxl
 
-        course_code = filename.rsplit('.', 1)[0]
+        canonical_name = self._canonicalize_filename(filename)
+        course_code = canonical_name.rsplit('.', 1)[0].rstrip('.')
 
-        sections = list(
-            CourseSection.objects.select_related('course')
+        sections_qs = list(
+            CourseSection.objects.select_related('course', 'course__academic_unit')
             .filter(term=term, course__code=course_code)
             .order_by('section_code')
         )
-        if not sections:
+        if not sections_qs:
             return {
                 "file": filename,
                 "error": f"No CourseSection found for course code '{course_code}' in this term."
             }
-        section = sections[0]
+
+        unit_to_sections: dict = defaultdict(list)
+        for sec in sections_qs:
+            unit_to_sections[sec.course.academic_unit_id].append(sec)
 
         unit_map = {
             self._normalize(u.name): u
@@ -189,50 +209,149 @@ class XlsxEnrollmentLoaderService:
         if missing:
             return {"file": filename, "error": f"Missing required column(s): {missing}"}
 
+        data_rows = rows[1:]
+        program_counts, valid_row_count = self._scan_rows(
+            data_rows, idx_student, idx_program, unit_map
+        )
+        file_section = self._pick_file_section(
+            unit_to_sections, program_counts, valid_row_count, sections_qs
+        )
+        if file_section is None:
+            return {
+                "file": filename,
+                "course_code": course_code,
+                "students_created": 0,
+                "enrollments_created": 0,
+                "warning": (
+                    f"Could not determine target section for '{course_code}': "
+                    f"no row's Program owns a section, file row count ({valid_row_count}) "
+                    f"doesn't uniquely match any section's max_enrollment, and there are "
+                    f"{len(sections_qs)} candidate sections."
+                ),
+            }
+
         try:
             with transaction.atomic():
                 return self._load_rows(
-                    rows[1:], idx_student, idx_program, idx_year,
-                    section, term, org, unit_map, filename
+                    data_rows, idx_student, idx_program, idx_year,
+                    file_section, course_code, term, org, unit_map, filename
                 )
         except Exception as exc:
             return {"file": filename, "error": f"Load failed and was rolled back: {exc}"}
 
+    def _scan_rows(self, data_rows, idx_student, idx_program, unit_map):
+        """Pre-scan: count rows per known-Program unit and total valid rows.
+        Used to pick the file's target section before the main load pass."""
+        program_counts: dict = defaultdict(int)
+        valid_row_count = 0
+        for row in data_rows:
+            if not row or idx_student >= len(row) or row[idx_student] is None:
+                continue
+            if not str(row[idx_student]).strip():
+                continue
+            valid_row_count += 1
+            program_raw = str(row[idx_program]).strip() if (
+                idx_program < len(row) and row[idx_program] is not None
+            ) else ''
+            unit = unit_map.get(self._normalize(program_raw))
+            if unit is not None:
+                program_counts[unit.id] += 1
+        return program_counts, valid_row_count
+
+    @staticmethod
+    def _closest_section(sections, n_rows, max_dist=None):
+        # Section whose max_enrollment is strictly closer to n_rows than any
+        # other. Optionally bounded by max_dist. Returns None on tie or when
+        # nothing is in range.
+        cands = [s for s in sections if s.max_enrollment is not None]
+        if max_dist is not None:
+            cands = [s for s in cands if abs(s.max_enrollment - n_rows) <= max_dist]
+        if not cands:
+            return None
+        cands.sort(key=lambda s: abs(s.max_enrollment - n_rows))
+        if len(cands) == 1:
+            return cands[0]
+        if abs(cands[0].max_enrollment - n_rows) < abs(cands[1].max_enrollment - n_rows):
+            return cands[0]
+        return None
+
+    @classmethod
+    def _pick_file_section(cls, unit_to_sections, program_counts, valid_row_count, sections_qs):
+        # Each XLSX represents one CourseSection's roster (the folder it came
+        # from). Filename only carries the course code, so we infer which
+        # section it is using:
+        #   A. Dominant routable Program → that dept's section. If the dept
+        #      owns multiple sections of the same code (e.g. MCE203 sections
+        #      1 and 2), pick the one whose max_enrollment is strictly
+        #      closest to the file's row count.
+        #   B. Single section overall — only one section exists for the
+        #      course code across all depts.
+        #   C. Row-count fallback — file row count uniquely matches one
+        #      section's max_enrollment (populated from catalog 'Kontenjan')
+        #      within ±2 (catalog drift tolerance).
+        # Returns None if no choice can be made confidently.
+        candidates = [
+            (unit_id, n) for unit_id, n in program_counts.items()
+            if unit_id in unit_to_sections
+        ]
+        if candidates:
+            candidates.sort(key=lambda x: -x[1])
+            secs = unit_to_sections[candidates[0][0]]
+            if len(secs) == 1:
+                return secs[0]
+            picked = cls._closest_section(secs, valid_row_count)
+            if picked is not None:
+                return picked
+
+        if len(sections_qs) == 1:
+            return sections_qs[0]
+
+        return cls._closest_section(sections_qs, valid_row_count, max_dist=2)
+
     def _load_rows(self, data_rows, idx_student, idx_program, idx_year,
-                   section, term, org, unit_map, filename) -> dict:
-        unknown_programs: set[str] = set()
+                   file_section, course_code,
+                   term, org, unit_map, filename) -> dict:
+        unknown_students_by_program: dict[str, set[str]] = defaultdict(set)
         student_infos: dict[str, dict] = {}
 
         for row in data_rows:
-            if not row or row[idx_student] is None:
+            if not row or idx_student >= len(row) or row[idx_student] is None:
                 continue
-            identifier   = str(row[idx_student]).strip()
-            program_raw  = str(row[idx_program]).strip() if row[idx_program] else ''
+            identifier = str(row[idx_student]).strip()
+            if not identifier:
+                continue
+            program_raw = str(row[idx_program]).strip() if (
+                idx_program < len(row) and row[idx_program] is not None
+            ) else ''
             program_norm = self._normalize(program_raw)
             try:
                 year_level = int(row[idx_year])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, IndexError):
                 year_level = 1
 
             unit = unit_map.get(program_norm)
             if unit is None:
-                unknown_programs.add(program_raw)
+                unknown_students_by_program[program_raw or '<EMPTY>'].add(identifier)
                 continue
 
-            student_infos[identifier] = {'unit': unit, 'year_level': year_level}
-
-        if unknown_programs:
-            return {
-                "file": filename,
-                "error": (
-                    f"Unknown program name(s): {sorted(unknown_programs)}. "
-                    f"Ensure AcademicUnit names match these values (ignoring trailing punctuation)."
-                )
+            student_infos[identifier] = {
+                'unit': unit,
+                'year_level': year_level,
             }
 
+        unknown_breakdown = {p: len(ids) for p, ids in unknown_students_by_program.items()}
+        unknown_students_total = sum(unknown_breakdown.values())
+
         if not student_infos:
-            return {"file": filename, "students_created": 0, "enrollments_created": 0,
-                    "warning": "No valid rows found in file."}
+            return {
+                "file": filename,
+                "course_code": course_code,
+                "students_created": 0,
+                "enrollments_created": 0,
+                "skipped_unknown_program_students": unknown_students_total,
+                "unknown_programs_breakdown": unknown_breakdown,
+                "warning": "No valid rows with a known program were found in this file.",
+            }
 
         group_map: dict[tuple, StudentGroup] = {}
         for info in student_infos.values():
@@ -290,12 +409,12 @@ class XlsxEnrollmentLoaderService:
             StudentGroup.objects.bulk_update(groups_to_update, ['size_estimate'])
 
         already_enrolled = set(
-            Enrollment.objects.filter(section=section, term=term)
+            Enrollment.objects.filter(section=file_section, term=term)
             .values_list('student_id', flat=True)
         )
 
         enrollments_to_create = [
-            Enrollment(student=student_map[identifier], section=section, term=term)
+            Enrollment(student=student_map[identifier], section=file_section, term=term)
             for identifier in student_infos
             if identifier in student_map and student_map[identifier].id not in already_enrolled
         ]
@@ -304,7 +423,11 @@ class XlsxEnrollmentLoaderService:
 
         return {
             "file": filename,
-            "course_code": section.course.code,
+            "course_code": course_code,
             "students_created": len(to_create),
             "enrollments_created": len(enrollments_to_create),
+            "skipped_unknown_program_students": unknown_students_total,
+            "unknown_programs_breakdown": unknown_breakdown,
+            "target_section_owner": file_section.course.academic_unit.name,
+            "target_section_max_enrollment": file_section.max_enrollment,
         }

@@ -847,38 +847,38 @@ export default function ExamCalendarPage() {
               </div>
             </div>
           )}
-          <DataTable headers={["Şube", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Sınav Süresi", "Hariç Tut", ""]}>
+          <DataTable headers={["Şube", "Ders Kodu", "Ders Adı", "Sınıf", "Bölüm", "Öğrenci Sayısı", "Sınav Süresi", "Hariç Tut", ""]}>
             {sectionsLoading && (
               <DataRow>
-                <DataCell colSpan={8} style={{ textAlign: "center", padding: 40 }}>
+                <DataCell colSpan={9} style={{ textAlign: "center", padding: 40 }}>
                   <Spinner size={20} />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && !optTermId && (
               <DataRow>
-                <DataCell colSpan={8}>
+                <DataCell colSpan={9}>
                   <InfoBox msg="Lütfen bir dönem seçin." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && !optPeriodId && (
               <DataRow>
-                <DataCell colSpan={8}>
+                <DataCell colSpan={9}>
                   <InfoBox msg="Hariç tutma ayarları sınav takvimine özgüdür. Lütfen bir sınav takvimi seçin." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && optPeriodId && sections.length === 0 && (
               <DataRow>
-                <DataCell colSpan={8}>
+                <DataCell colSpan={9}>
                   <InfoBox msg="Bu dönemde kayıtlı öğrencisi olan ders bulunamadı." />
                 </DataCell>
               </DataRow>
             )}
             {!sectionsLoading && optTermId && optPeriodId && sections.length > 0 && filteredSections.length === 0 && (
               <DataRow>
-                <DataCell colSpan={8}>
+                <DataCell colSpan={9}>
                   <InfoBox msg="Uygun ders bulunamadı." />
                 </DataCell>
               </DataRow>
@@ -899,6 +899,9 @@ export default function ExamCalendarPage() {
                     {sec.year_level ? `${sec.year_level}. Sınıf` : "—"}
                   </DataCell>
                   <DataCell style={{ fontSize: 12, color: C.textSub }}>{sec.academic_unit_name ?? "—"}</DataCell>
+                  <DataCell style={{ ...mono, fontSize: 12, color: C.textSub }}>
+                    {sec.enrollment_count ?? 0}
+                  </DataCell>
                   <DataCell style={{ fontSize: 12 }}>
                     {sec.exam_duration_minutes != null ? (
                       <span style={{ ...mono }}>
