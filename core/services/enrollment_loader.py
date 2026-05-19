@@ -177,9 +177,9 @@ class XlsxEnrollmentLoaderService:
                 "error": f"No CourseSection found for course code '{course_code}' in this term."
             }
 
-        sections_by_unit_id: dict = {}
+        unit_to_sections: dict = defaultdict(list)
         for sec in sections_qs:
-            sections_by_unit_id.setdefault(sec.course.academic_unit_id, sec)
+            unit_to_sections[sec.course.academic_unit_id].append(sec)
 
         unit_map = {
             self._normalize(u.name): u
@@ -214,7 +214,7 @@ class XlsxEnrollmentLoaderService:
             data_rows, idx_student, idx_program, unit_map
         )
         file_section = self._pick_file_section(
-            sections_by_unit_id, program_counts, valid_row_count, sections_qs
+            unit_to_sections, program_counts, valid_row_count, sections_qs
         )
         if file_section is None:
             return {
@@ -226,7 +226,7 @@ class XlsxEnrollmentLoaderService:
                     f"Could not determine target section for '{course_code}': "
                     f"no row's Program owns a section, file row count ({valid_row_count}) "
                     f"doesn't uniquely match any section's max_enrollment, and there are "
-                    f"{len(sections_by_unit_id)} candidate sections."
+                    f"{len(sections_qs)} candidate sections."
                 ),
             }
 
@@ -259,37 +259,54 @@ class XlsxEnrollmentLoaderService:
         return program_counts, valid_row_count
 
     @staticmethod
-    def _pick_file_section(sections_by_unit_id, program_counts, valid_row_count, sections_qs):
+    def _closest_section(sections, n_rows, max_dist=None):
+        # Section whose max_enrollment is strictly closer to n_rows than any
+        # other. Optionally bounded by max_dist. Returns None on tie or when
+        # nothing is in range.
+        cands = [s for s in sections if s.max_enrollment is not None]
+        if max_dist is not None:
+            cands = [s for s in cands if abs(s.max_enrollment - n_rows) <= max_dist]
+        if not cands:
+            return None
+        cands.sort(key=lambda s: abs(s.max_enrollment - n_rows))
+        if len(cands) == 1:
+            return cands[0]
+        if abs(cands[0].max_enrollment - n_rows) < abs(cands[1].max_enrollment - n_rows):
+            return cands[0]
+        return None
+
+    @classmethod
+    def _pick_file_section(cls, unit_to_sections, program_counts, valid_row_count, sections_qs):
         # Each XLSX represents one CourseSection's roster (the folder it came
         # from). Filename only carries the course code, so we infer which
         # section it is using:
-        #   A. Dominant routable Program — among Programs that own a section
-        #      for this course, the one with the most rows wins.
-        #   B. Single section — only one section exists across all depts.
+        #   A. Dominant routable Program → that dept's section. If the dept
+        #      owns multiple sections of the same code (e.g. MCE203 sections
+        #      1 and 2), pick the one whose max_enrollment is strictly
+        #      closest to the file's row count.
+        #   B. Single section overall — only one section exists for the
+        #      course code across all depts.
         #   C. Row-count fallback — file row count uniquely matches one
         #      section's max_enrollment (populated from catalog 'Kontenjan')
-        #      within a small tolerance.
+        #      within ±2 (catalog drift tolerance).
         # Returns None if no choice can be made confidently.
         candidates = [
             (unit_id, n) for unit_id, n in program_counts.items()
-            if unit_id in sections_by_unit_id
+            if unit_id in unit_to_sections
         ]
         if candidates:
             candidates.sort(key=lambda x: -x[1])
-            return sections_by_unit_id[candidates[0][0]]
+            secs = unit_to_sections[candidates[0][0]]
+            if len(secs) == 1:
+                return secs[0]
+            picked = cls._closest_section(secs, valid_row_count)
+            if picked is not None:
+                return picked
 
-        if len(sections_by_unit_id) == 1:
-            return next(iter(sections_by_unit_id.values()))
+        if len(sections_qs) == 1:
+            return sections_qs[0]
 
-        near = [
-            s for s in sections_qs
-            if s.max_enrollment is not None
-            and abs(s.max_enrollment - valid_row_count) <= 2
-        ]
-        if len(near) == 1:
-            return near[0]
-
-        return None
+        return cls._closest_section(sections_qs, valid_row_count, max_dist=2)
 
     def _load_rows(self, data_rows, idx_student, idx_program, idx_year,
                    file_section, course_code,

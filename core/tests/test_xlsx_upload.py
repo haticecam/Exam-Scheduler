@@ -308,6 +308,42 @@ def test_service_falls_back_to_rowcount_when_no_dominant_program_has_section(bas
 
 
 @pytest.mark.django_db
+def test_service_disambiguates_same_dept_multi_sections_by_rowcount(base_data):
+    """When the same dept owns multiple sections of one course (e.g. MCE203
+    has sections 1 and 2, both under MAKİNE), the dominant Program alone
+    doesn't pick a winner. Row count vs catalog max_enrollment tiebreaks."""
+    course = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=base_data['dept'],
+        code="MCE203", name="Stat", year_level=2, requirement="COMPULSORY"
+    )
+    section_1 = CourseSection.objects.create(
+        term=base_data['term'], course=course, section_code="1", max_enrollment=3
+    )
+    section_2 = CourseSection.objects.create(
+        term=base_data['term'], course=course, section_code="2", max_enrollment=2
+    )
+
+    big_file = make_xlsx([
+        HEADER,
+        ['S1', 'BİLGİSAYAR MÜH', 2, 'X', 'Z'],
+        ['S2', 'BİLGİSAYAR MÜH', 2, 'X', 'Z'],
+        ['S3', 'BİLGİSAYAR MÜH', 2, 'X', 'Z'],
+    ])
+    small_file = make_xlsx([
+        HEADER,
+        ['S4', 'BİLGİSAYAR MÜH', 2, 'X', 'Z'],
+        ['S5', 'BİLGİSAYAR MÜH', 2, 'X', 'Z'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    svc.process_files(
+        [('MCE203.xlsx', big_file), ('MCE203.xlsx', small_file)],
+        str(base_data['term'].id)
+    )
+    assert Enrollment.objects.filter(section=section_1).count() == 3
+    assert Enrollment.objects.filter(section=section_2).count() == 2
+
+
+@pytest.mark.django_db
 def test_service_strips_trailing_dots_in_filename(base_data):
     """Filenames like 'CENG113...xlsx' from inconsistent exports should still
     derive course code 'CENG113'."""
