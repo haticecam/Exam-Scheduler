@@ -176,6 +176,91 @@ def test_service_all_unknown_programs_loads_nothing(base_data):
 
 
 @pytest.mark.django_db
+def test_service_routes_rows_to_per_department_sections(base_data):
+    """When a course code resolves to multiple sections (one per owning
+    AcademicUnit — e.g. TİT101 has a section per consumer dept), each row's
+    Program decides which section the student enrolls into. Without this,
+    every file collapses into `sections[0]` and only one dept gets enrollments."""
+    other_dept = AcademicUnit.objects.create(
+        organization=base_data['org'], name="MAKİNE MÜH", type="Department"
+    )
+    course_other = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=other_dept,
+        code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
+    )
+    section_other = CourseSection.objects.create(
+        term=base_data['term'], course=course_other, section_code="A", max_enrollment=100
+    )
+    course_ceng = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=base_data['dept'],
+        code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
+    )
+    section_ceng = CourseSection.objects.create(
+        term=base_data['term'], course=course_ceng, section_code="A", max_enrollment=100
+    )
+
+    xlsx_bytes = make_xlsx([
+        HEADER,
+        ['STU_C1', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
+        ['STU_C2', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
+        ['STU_M1', 'MAKİNE MÜH',     1, 'X', 'Zorunlu'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    result = svc.process_files(
+        [('TİT101.xlsx', xlsx_bytes)],
+        str(base_data['term'].id)
+    )
+    file_result = result['results'][0]
+    assert 'error' not in file_result, file_result.get('error')
+    assert file_result['enrollments_created'] == 3
+    assert Enrollment.objects.filter(section=section_ceng).count() == 2
+    assert Enrollment.objects.filter(section=section_other).count() == 1
+
+
+@pytest.mark.django_db
+def test_service_unrouted_rows_when_no_section_for_program(base_data):
+    """In a multi-section course, rows whose Program has no matching section
+    are reported separately from unknown-program rows so the UI can surface them."""
+    other_dept = AcademicUnit.objects.create(
+        organization=base_data['org'], name="MAKİNE MÜH", type="Department"
+    )
+    course_other = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=other_dept,
+        code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
+    )
+    CourseSection.objects.create(
+        term=base_data['term'], course=course_other, section_code="A", max_enrollment=100
+    )
+    course_ceng = CourseCatalog.objects.create(
+        organization=base_data['org'], academic_unit=base_data['dept'],
+        code="TİT101", name="Atatürk İlkeleri", year_level=1, requirement="COMPULSORY"
+    )
+    CourseSection.objects.create(
+        term=base_data['term'], course=course_ceng, section_code="A", max_enrollment=100
+    )
+    # Register a 3rd dept (no TİT101 section), so its rows are known-program-but-unrouted
+    AcademicUnit.objects.create(
+        organization=base_data['org'], name="MATEMATIK", type="Department"
+    )
+
+    xlsx_bytes = make_xlsx([
+        HEADER,
+        ['STU_C1', 'BİLGİSAYAR MÜH', 1, 'X', 'Zorunlu'],
+        ['STU_X1', 'MATEMATIK',      1, 'X', 'Zorunlu'],
+    ])
+    svc = XlsxEnrollmentLoaderService()
+    result = svc.process_files(
+        [('TİT101.xlsx', xlsx_bytes)],
+        str(base_data['term'].id)
+    )
+    fr = result['results'][0]
+    assert 'error' not in fr, fr.get('error')
+    assert fr['enrollments_created'] == 1
+    assert fr['skipped_no_section_for_program_students'] == 1
+    assert fr['no_section_for_program_breakdown'] == {'MATEMATIK': 1}
+
+
+@pytest.mark.django_db
 def test_service_recovers_mojibake_filename(base_data):
     """Filenames mis-decoded as cp437 (e.g. `TI╠çT101.xlsx` for `TİT101.xlsx`)
     must be canonicalized before deriving the course code, so enrollments still
