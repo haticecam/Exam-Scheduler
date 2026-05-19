@@ -58,6 +58,14 @@ const FIELD_LABELS_TR: Record<string, string> = {
   proposed_params: "Önerilen parametreler",
 };
 
+function getFriendlyParamLabel(code: string): string {
+  const cleanCode = code.replace(/^PARAM_/, "").toLowerCase();
+  if (cleanCode === "no_back_to_back_depts" || cleanCode === "scope_dept_no_back_to_back") {
+    return "Bölüm bazlı arka arkaya sınav engeli";
+  }
+  return FIELD_LABELS_TR[cleanCode] || code;
+}
+
 function translateDrfMessage(msg: string): string {
   let m = msg.match(/^Ensure this value is greater than or equal to (\S+?)\.?$/);
   if (m) return `${m[1]} veya daha büyük bir değer girin.`;
@@ -156,12 +164,18 @@ export default function OptimizerPage() {
   const [manualEnd, setManualEnd] = useState("18:30");
   const [manualSlotDuration, setManualSlotDuration] = useState(30);
 
+  const [isRestored, setIsRestored] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+
   useEffect(() => {
-    if (!activeTerm) return;
+    if (!activeTerm || !isRestored) return;
     const id = String(activeTerm.id);
-    setParams(prev => (prev.term_id === id ? prev : { ...prev, term_id: id }));
-    setExamPeriodId("");
-  }, [activeTerm?.id]);
+    setParams(prev => {
+      if (prev.term_id === id) return prev;
+      setExamPeriodId("");
+      return { ...prev, term_id: id };
+    });
+  }, [activeTerm?.id, isRestored]);
   const { data: periodsData } = useFetch(
     params.term_id ? `/exam-periods/?term_id=${params.term_id}` : "",
     [params.term_id]
@@ -220,12 +234,128 @@ export default function OptimizerPage() {
 
   useEffect(() => () => stopPoll(), []);
 
+  // Load from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedParams = localStorage.getItem("opt_params");
+      if (savedParams) setParams(JSON.parse(savedParams));
+
+      const savedPeriodId = localStorage.getItem("opt_examPeriodId");
+      if (savedPeriodId) setExamPeriodId(savedPeriodId);
+
+      const savedManualStart = localStorage.getItem("opt_manualStart");
+      if (savedManualStart) setManualStart(savedManualStart);
+
+      const savedManualEnd = localStorage.getItem("opt_manualEnd");
+      if (savedManualEnd) setManualEnd(savedManualEnd);
+
+      const savedManualSlotDuration = localStorage.getItem("opt_manualSlotDuration");
+      if (savedManualSlotDuration) setManualSlotDuration(Number(savedManualSlotDuration));
+
+      const savedAppliedChanges = localStorage.getItem("opt_appliedChanges");
+      if (savedAppliedChanges) setAppliedChanges(JSON.parse(savedAppliedChanges));
+
+      const savedPendingKwargs = localStorage.getItem("opt_pendingKwargs");
+      if (savedPendingKwargs) setPendingKwargs(JSON.parse(savedPendingKwargs));
+
+      const savedRunSt = localStorage.getItem("opt_runSt");
+      const savedSolId = localStorage.getItem("opt_solId");
+      const savedPollSnap = localStorage.getItem("opt_pollSnap");
+      const savedIis = localStorage.getItem("opt_iis");
+
+      if (savedRunSt) setRunSt(savedRunSt);
+      if (savedSolId) setSolId(savedSolId);
+      if (savedPollSnap) setPollSnap(JSON.parse(savedPollSnap));
+      if (savedIis) setIis(JSON.parse(savedIis));
+
+      if (savedRunSt === "polling" && savedSolId) {
+        startPolling(savedSolId);
+      }
+    } catch (e) {
+      console.error("Failed to load settings from localStorage", e);
+    } finally {
+      setIsRestored(true);
+    }
+  }, [startPolling]);
+
+  // Sync to localStorage
+  useEffect(() => {
+    if (!isRestored) return;
+    localStorage.setItem("opt_params", JSON.stringify(params));
+  }, [params, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    localStorage.setItem("opt_examPeriodId", examPeriodId);
+  }, [examPeriodId, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    localStorage.setItem("opt_manualStart", manualStart);
+  }, [manualStart, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    localStorage.setItem("opt_manualEnd", manualEnd);
+  }, [manualEnd, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    localStorage.setItem("opt_manualSlotDuration", String(manualSlotDuration));
+  }, [manualSlotDuration, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    if (appliedChanges) {
+      localStorage.setItem("opt_appliedChanges", JSON.stringify(appliedChanges));
+    } else {
+      localStorage.removeItem("opt_appliedChanges");
+    }
+  }, [appliedChanges, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    if (pendingKwargs) {
+      localStorage.setItem("opt_pendingKwargs", JSON.stringify(pendingKwargs));
+    } else {
+      localStorage.removeItem("opt_pendingKwargs");
+    }
+  }, [pendingKwargs, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    localStorage.setItem("opt_runSt", runSt);
+  }, [runSt, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    if (solId) {
+      localStorage.setItem("opt_solId", solId);
+    } else {
+      localStorage.removeItem("opt_solId");
+    }
+  }, [solId, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    if (pollSnap) {
+      localStorage.setItem("opt_pollSnap", JSON.stringify(pollSnap));
+    } else {
+      localStorage.removeItem("opt_pollSnap");
+    }
+  }, [pollSnap, isRestored]);
+
+  useEffect(() => {
+    if (!isRestored) return;
+    localStorage.setItem("opt_iis", JSON.stringify(iis));
+  }, [iis, isRestored]);
+
   const submit = async () => {
     if (!params.term_id) { setSubErr("Lütfen bir dönem seçin."); return; }
     setRunSt("submitting"); setSubErr(""); setIis([]); setPollSnap(null);
     try {
       // Build extra params from checklist (only checked items)
-      let extraParams: Partial<typeof params> = {};
+      const extraParams: Partial<typeof params> = {};
       let resolvedProposedParams: Record<string, unknown> | null = null;
 
       if (appliedChanges && pendingKwargs) {
@@ -302,6 +432,59 @@ export default function OptimizerPage() {
     setAppliedChanges(null); setPendingKwargs(null); setShowParams(false);
   };
 
+  const handleResetToDefaults = () => {
+    setShowResetConfirm(true);
+  };
+
+  const confirmReset = () => {
+    setShowResetConfirm(false);
+    stopPoll();
+    setParams({
+      term_id: activeTerm ? String(activeTerm.id) : "",
+      name: "",
+      hard_threshold: 5,
+      time_limit: 300,
+      mip_gap: 0.10,
+      no_back_to_back: false,
+      exam_days: 5,
+      slots_per_day: 20,
+      start_hour: 8,
+      year_order_weight: 100.0,
+      year_order_sequence: null,
+      year_order_weights: null,
+    });
+    setExamPeriodId("");
+    setManualStart("08:30");
+    setManualEnd("18:30");
+    setManualSlotDuration(30);
+    setAppliedChanges(null);
+    setPendingKwargs(null);
+    setRunSt("idle");
+    setSolId(null);
+    setPollSnap(null);
+    setIis([]);
+    setSubErr("");
+    setLlmMessage("");
+    setLlmSt("idle");
+    setLlmResult(null);
+    setLlmErr("");
+    setDiagSt("idle");
+    setDiagResult(null);
+    setShowParams(false);
+
+    localStorage.removeItem("opt_params");
+    localStorage.removeItem("opt_examPeriodId");
+    localStorage.removeItem("opt_manualStart");
+    localStorage.removeItem("opt_manualEnd");
+    localStorage.removeItem("opt_manualSlotDuration");
+    localStorage.removeItem("opt_appliedChanges");
+    localStorage.removeItem("opt_pendingKwargs");
+    localStorage.removeItem("opt_runSt");
+    localStorage.removeItem("opt_solId");
+    localStorage.removeItem("opt_pollSnap");
+    localStorage.removeItem("opt_iis");
+  };
+
   // LLM: configure
   const askLlm = async () => {
     if (!llmMessage.trim()) return;
@@ -319,10 +502,32 @@ export default function OptimizerPage() {
   // LLM: stage changes into checklist (nothing written to params yet)
   const stageChanges = () => {
     if (!llmResult?.optimizer_kwargs) return;
-    setAppliedChanges(llmResult.changes.map(ch => ({ ...ch, checked: true })));
-    setPendingKwargs({
-      optimizer_kwargs: llmResult.optimizer_kwargs,
-      proposed_params: llmResult.proposed_params ?? null,
+    const newChanges = llmResult.changes.map(ch => ({ ...ch, checked: true }));
+    setAppliedChanges(prev => {
+      if (!prev) return newChanges;
+      const codesInNew = new Set(newChanges.map(c => c.code));
+      const filteredPrev = prev.filter(c => !codesInNew.has(c.code));
+      return [...filteredPrev, ...newChanges];
+    });
+    setPendingKwargs(prev => {
+      const nextKwargs = llmResult.optimizer_kwargs;
+      const nextProposed = llmResult.proposed_params ?? {};
+      if (!prev) {
+        return {
+          optimizer_kwargs: nextKwargs,
+          proposed_params: nextProposed,
+        };
+      }
+      return {
+        optimizer_kwargs: {
+          ...prev.optimizer_kwargs,
+          ...nextKwargs,
+        },
+        proposed_params: {
+          ...(prev.proposed_params ?? {}),
+          ...nextProposed,
+        },
+      };
     });
     setLlmSt("idle");
     setLlmResult(null);
@@ -350,8 +555,39 @@ export default function OptimizerPage() {
 
   return (
     <div>
-      <h2 style={{ fontSize: 26, fontWeight: 700, color: C.text, margin: "0 0 6px", ...mono }}>Optimizer Çalıştır</h2>
-      <p style={{ color: C.textMuted, fontSize: 14, marginBottom: 24 }}>Gurobi MIP tabanlı sınav çizelgeleme motorunu yapılandırın ve çalıştırın.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+        <div>
+          <h2 style={{ fontSize: 26, fontWeight: 700, color: C.text, margin: "0 0 6px", ...mono }}>Optimizer Çalıştır</h2>
+          <p style={{ color: C.textMuted, fontSize: 14, margin: 0 }}>Gurobi MIP tabanlı sınav çizelgeleme motorunu yapılandırın ve çalıştırın.</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleResetToDefaults}
+          style={{
+            background: "transparent",
+            color: C.red,
+            border: `1px solid color-mix(in srgb, ${C.red} 40%, transparent)`,
+            borderRadius: 6,
+            padding: "8px 14px",
+            cursor: "pointer",
+            ...mono,
+            fontSize: 12,
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            transition: "all 140ms ease-out",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = `color-mix(in srgb, ${C.red} 8%, transparent)`;
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = "transparent";
+          }}
+        >
+          ↺  Varsayılana Sıfırla
+        </button>
+      </div>
 
       {/* ── Status bar ───────────────────────────────────────────── */}
       {runSt !== "idle" && (
@@ -621,9 +857,9 @@ export default function OptimizerPage() {
                   <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
                     <span style={{ color: C.cyan, fontSize: 12, flexShrink: 0, marginTop: 1 }}>▸</span>
                     <div>
-                      <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>{ch.code}</span>
-                      <span style={{ fontSize: 12, color: C.text, marginLeft: 8, fontWeight: 600 }}>{typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}</span>
-                      <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>{ch.reason}</div>
+                      <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>
+                        {ch.reason || `${getFriendlyParamLabel(ch.code)} → ${typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}`}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -786,7 +1022,7 @@ export default function OptimizerPage() {
           <div>
             <label style={lStyle}>ZAMAN LİMİTİ (saniye)</label>
             <NumberInput style={iStyle} min={1} value={params.time_limit} onChange={n => setParams({ ...params, time_limit: n })} />
-            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>Gurobi'nin maksimum çalışma süresi · varsayılan 300s (5 dk)</div>
+            <div style={{ fontSize: 11, color: C.textMuted, marginTop: 4 }}>{"Gurobi'nin maksimum çalışma süresi · varsayılan 300s (5 dk)"}</div>
           </div>
           <div>
             <label style={lStyle}>MIP GAP TOLERANSI</label>
@@ -916,11 +1152,8 @@ export default function OptimizerPage() {
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                  <span style={{ ...mono, fontSize: 11, color: C.cyan, background: `color-mix(in srgb, ${C.cyan} 12%, transparent)`, padding: "2px 6px", borderRadius: 4 }}>
-                    {ch.code}
-                  </span>
-                  <span style={{ fontSize: 12, color: C.text, fontWeight: 600, textDecoration: ignored ? "line-through" : "none" }}>
-                    → {typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}
+                  <span style={{ fontSize: 13, color: C.text, fontWeight: 600, textDecoration: ignored ? "line-through" : "none" }}>
+                    {ch.reason || `${getFriendlyParamLabel(ch.code)} → ${typeof ch.value === "object" && ch.value !== null ? JSON.stringify(ch.value) : String(ch.value)}`}
                   </span>
                   {ignored && (
                     <span style={{ ...mono, fontSize: 10, color: C.amber, background: `color-mix(in srgb, ${C.amber} 12%, transparent)`, padding: "2px 6px", borderRadius: 4, letterSpacing: "0.04em" }}>
@@ -928,7 +1161,6 @@ export default function OptimizerPage() {
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 11, color: C.textMuted, lineHeight: 1.5 }}>{ch.reason}</div>
               </div>
             </div>
             );
@@ -945,6 +1177,95 @@ export default function OptimizerPage() {
           {isRunning ? <><Spinner size={14} color={C.accent} /> Çalışıyor…</> : "▶  Optimizasyonu Başlat"}
         </button>
       </div>
+
+      {/* ── Custom Reset Confirmation Modal ────────────────────── */}
+      {showResetConfirm && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          background: "rgba(0, 0, 0, 0.65)",
+          backdropFilter: "blur(4px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+        }}>
+          <div style={{
+            background: "var(--surface)",
+            border: `1px solid ${C.border}`,
+            borderRadius: 12,
+            padding: "24px",
+            maxWidth: 420,
+            width: "90%",
+            boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)",
+            textAlign: "center"
+          }}>
+            <div style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              background: `color-mix(in srgb, ${C.red} 10%, transparent)`,
+              color: C.red,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 22,
+              margin: "0 auto 16px"
+            }}>
+              ↺
+            </div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: C.text, margin: "0 0 10px", ...mono }}>Varsayılana Sıfırla</h3>
+            <p style={{ fontSize: 13, color: C.textMuted, lineHeight: 1.6, margin: "0 0 20px" }}>
+              Tüm optimizer ayarlarını, el ile belirlediğiniz parametreleri ve yapılmış olan AI değişikliklerini sıfırlamak istediğinize emin misiniz? Bu işlem geri alınamaz.
+            </p>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+              <button
+                type="button"
+                onClick={() => setShowResetConfirm(false)}
+                style={{
+                  background: "transparent",
+                  color: C.text,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  padding: "10px 20px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  ...mono,
+                  transition: "background 0.15s"
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = "var(--surface-hover)"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={confirmReset}
+                style={{
+                  background: C.red,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "10px 20px",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  ...mono,
+                  transition: "background 0.15s"
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = `color-mix(in srgb, ${C.red} 85%, #000)`; }}
+                onMouseLeave={e => { e.currentTarget.style.background = C.red; }}
+              >
+                Evet, Sıfırla
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
