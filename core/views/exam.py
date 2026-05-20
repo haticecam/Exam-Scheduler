@@ -100,6 +100,11 @@ class ExamPeriodViewSet(viewsets.ModelViewSet):
             section = CourseSection.objects.get(id=section_id)
         except CourseSection.DoesNotExist:
             return Response({"error": "Section not found"}, status=status.HTTP_404_NOT_FOUND)
+        if section.enrollments.count() == 0:
+            return Response(
+                {"error": "Kayıtlı öğrencisi olmayan dersler otomatik olarak hariç tutulur."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         exclusion = ExamPeriodSectionExclusion.objects.filter(exam_period=period, course_section=section).first()
         if exclusion:
             exclusion.delete()

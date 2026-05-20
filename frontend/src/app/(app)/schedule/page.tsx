@@ -128,9 +128,11 @@ function ScheduleContent() {
     if (!grouped[d]) grouped[d] = {};
     if (!grouped[d][t]) grouped[d][t] = {};
     const cKey = `${code}_${name}`;
-    if (!grouped[d][t][cKey]) grouped[d][t][cKey] = { code, name, year, rooms: [] };
+    if (!grouped[d][t][cKey]) grouped[d][t][cKey] = { code, name, year, rooms: [], depts: [] };
     const rLabel = a.room || a.resource_name || "—";
     if (!grouped[d][t][cKey].rooms.includes(rLabel)) grouped[d][t][cKey].rooms.push(rLabel);
+    const dLabel = a.department || a.dept;
+    if (dLabel && !grouped[d][t][cKey].depts.includes(dLabel)) grouped[d][t][cKey].depts.push(dLabel);
   });
 
   const sortedDays = Object.keys(grouped).sort((a: string, b: string) => {
@@ -403,11 +405,16 @@ function ScheduleContent() {
                             )}
                             <td style={{ padding: "16px 24px" }}>
                               <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>{course.name.toUpperCase()}</div>
-                              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+                              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4, flexWrap: "wrap" }}>
                                 <span style={{ fontSize: 11, color: C.accent, fontWeight: 700, ...mono }}>{course.code}</span>
                                 {course.year && (
                                   <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "var(--surface-container-high)", color: C.textSub, ...mono }}>
                                     {course.year}. Sınıf
+                                  </span>
+                                )}
+                                {course.depts && course.depts.length > 1 && (
+                                  <span title="Birden fazla bölümün ortak sınavı" style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "var(--surface-container-high)", color: C.textSub, ...mono }}>
+                                    {course.depts.join(", ")}
                                   </span>
                                 )}
                               </div>
