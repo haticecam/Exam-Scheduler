@@ -315,10 +315,17 @@ export default function ExamCalendarPage() {
     return INDUSTRIAL_PRACTICE_KEYWORDS.some(kw => name.includes(kw));
   };
 
+  const hasEnrollments = (s: any) => (s.enrollment_count ?? 0) > 0;
   const gradSections = sections.filter(isGradProject);
   const industrialSections = sections.filter(isIndustrialPractice);
-  const allGradExcluded = gradSections.length > 0 && gradSections.every((s: any) => s.excluded_from_optimization);
-  const allIndustrialExcluded = industrialSections.length > 0 && industrialSections.every((s: any) => s.excluded_from_optimization);
+  const eligibleGradSections = gradSections.filter(hasEnrollments);
+  const eligibleIndustrialSections = industrialSections.filter(hasEnrollments);
+  const allGradExcluded =
+    eligibleGradSections.length > 0 &&
+    eligibleGradSections.every((s: any) => s.excluded_from_optimization);
+  const allIndustrialExcluded =
+    eligibleIndustrialSections.length > 0 &&
+    eligibleIndustrialSections.every((s: any) => s.excluded_from_optimization);
 
   const filteredSections = sections.filter((s: any) => {
     if (filterDept !== "Tümü" && String(s.academic_unit_id) !== filterDept) return false;
@@ -353,9 +360,10 @@ export default function ExamCalendarPage() {
     if (!optPeriodId) return;
     setBulkLoading(key);
     setToggleError(null);
+    const eligible = matchingSections.filter((s: any) => (s.enrollment_count ?? 0) > 0);
     const targets = allExcluded
-      ? matchingSections
-      : matchingSections.filter((s: any) => !s.excluded_from_optimization);
+      ? eligible
+      : eligible.filter((s: any) => !s.excluded_from_optimization);
     try {
       await Promise.all(
         targets.map((s: any) =>
@@ -816,31 +824,31 @@ export default function ExamCalendarPage() {
                 </div>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 24px", alignItems: "center" }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: gradSections.length === 0 || bulkLoading !== null ? "not-allowed" : "pointer", userSelect: "none", opacity: gradSections.length === 0 ? 0.4 : 1 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: eligibleGradSections.length === 0 || bulkLoading !== null ? "not-allowed" : "pointer", userSelect: "none", opacity: eligibleGradSections.length === 0 ? 0.4 : 1 }}>
                   <input
                     type="checkbox"
                     checked={allGradExcluded}
-                    disabled={gradSections.length === 0 || bulkLoading !== null}
-                    onChange={() => bulkToggle(gradSections, allGradExcluded, "grad")}
+                    disabled={eligibleGradSections.length === 0 || bulkLoading !== null}
+                    onChange={() => bulkToggle(eligibleGradSections, allGradExcluded, "grad")}
                     style={{ width: 15, height: 15, cursor: "inherit", accentColor: C.accent, flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 12, color: C.textMuted, ...mono }}>
                     Bitirme Projesi derslerini hariç tut
-                    {gradSections.length > 0 && <span style={{ color: C.textMuted, marginLeft: 4 }}>({gradSections.length})</span>}
+                    {eligibleGradSections.length > 0 && <span style={{ color: C.textMuted, marginLeft: 4 }}>({eligibleGradSections.length})</span>}
                     {bulkLoading === "grad" && <span style={{ marginLeft: 6 }}>…</span>}
                   </span>
                 </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: industrialSections.length === 0 || bulkLoading !== null ? "not-allowed" : "pointer", userSelect: "none", opacity: industrialSections.length === 0 ? 0.4 : 1 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: eligibleIndustrialSections.length === 0 || bulkLoading !== null ? "not-allowed" : "pointer", userSelect: "none", opacity: eligibleIndustrialSections.length === 0 ? 0.4 : 1 }}>
                   <input
                     type="checkbox"
                     checked={allIndustrialExcluded}
-                    disabled={industrialSections.length === 0 || bulkLoading !== null}
-                    onChange={() => bulkToggle(industrialSections, allIndustrialExcluded, "industrial")}
+                    disabled={eligibleIndustrialSections.length === 0 || bulkLoading !== null}
+                    onChange={() => bulkToggle(eligibleIndustrialSections, allIndustrialExcluded, "industrial")}
                     style={{ width: 15, height: 15, cursor: "inherit", accentColor: C.accent, flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 12, color: C.textMuted, ...mono }}>
                     Staj / Mühendislik Uygulaması derslerini hariç tut
-                    {industrialSections.length > 0 && <span style={{ color: C.textMuted, marginLeft: 4 }}>({industrialSections.length})</span>}
+                    {eligibleIndustrialSections.length > 0 && <span style={{ color: C.textMuted, marginLeft: 4 }}>({eligibleIndustrialSections.length})</span>}
                     {bulkLoading === "industrial" && <span style={{ marginLeft: 6 }}>…</span>}
                   </span>
                 </label>
@@ -926,8 +934,18 @@ export default function ExamCalendarPage() {
                   <DataCell>
                     <button
                       type="button"
-                      title={!optPeriodId ? "Hariç tutmak için önce bir sınav takvimi seçin" : undefined}
-                      disabled={togglingId === sec.id || !optPeriodId}
+                      title={
+                        (sec.enrollment_count ?? 0) === 0
+                          ? "Kayıtlı öğrencisi olmadığı için otomatik olarak hariç tutulmuştur"
+                          : !optPeriodId
+                          ? "Hariç tutmak için önce bir sınav takvimi seçin"
+                          : undefined
+                      }
+                      disabled={
+                        togglingId === sec.id ||
+                        !optPeriodId ||
+                        (sec.enrollment_count ?? 0) === 0
+                      }
                       onClick={() => toggleExclusion(sec)}
                       style={{
                         width: 36,
@@ -935,7 +953,10 @@ export default function ExamCalendarPage() {
                         borderRadius: 10,
                         background: sec.excluded_from_optimization ? C.red : C.border,
                         border: "none",
-                        cursor: togglingId === sec.id ? "not-allowed" : "pointer",
+                        cursor:
+                          togglingId === sec.id || (sec.enrollment_count ?? 0) === 0
+                            ? "not-allowed"
+                            : "pointer",
                         position: "relative",
                         display: "inline-block",
                         transition: "background 140ms ease-out",
