@@ -87,3 +87,42 @@ def test_enrolled_section_with_explicit_exclusion_is_excluded(
     rows = _rows_for(res, section.id)
     assert len(rows) == 1
     assert rows[0]["excluded_from_optimization"] is True
+
+
+@pytest.mark.django_db
+def test_toggle_rejects_zero_enrollment_section(api_client, empty_section, period):
+    res = api_client.post(
+        f"/api/exam-periods/{period.id}/toggle-exclusion/",
+        {"section_id": str(empty_section.id)},
+        format="json",
+    )
+    assert res.status_code == 400
+    assert "Kayıtlı öğrencisi olmayan" in res.data.get("error", "")
+    assert ExamPeriodSectionExclusion.objects.filter(
+        exam_period=period, course_section=empty_section
+    ).count() == 0
+
+
+@pytest.mark.django_db
+def test_toggle_still_works_for_enrolled_section(api_client, section, enrollment, period):
+    res = api_client.post(
+        f"/api/exam-periods/{period.id}/toggle-exclusion/",
+        {"section_id": str(section.id)},
+        format="json",
+    )
+    assert res.status_code == 200
+    assert res.data["excluded"] is True
+    assert ExamPeriodSectionExclusion.objects.filter(
+        exam_period=period, course_section=section
+    ).count() == 1
+
+    res = api_client.post(
+        f"/api/exam-periods/{period.id}/toggle-exclusion/",
+        {"section_id": str(section.id)},
+        format="json",
+    )
+    assert res.status_code == 200
+    assert res.data["excluded"] is False
+    assert ExamPeriodSectionExclusion.objects.filter(
+        exam_period=period, course_section=section
+    ).count() == 0
