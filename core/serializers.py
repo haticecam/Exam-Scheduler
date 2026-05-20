@@ -82,6 +82,8 @@ class CourseSectionSerializer(serializers.ModelSerializer):
         return None
 
     def get_excluded_from_optimization(self, obj):
+        if getattr(obj, 'enrollment_count', 0) == 0:
+            return True
         return getattr(obj, 'excluded_from_optimization', False)
 
     class Meta:
